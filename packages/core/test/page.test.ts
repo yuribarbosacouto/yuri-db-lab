@@ -1,5 +1,9 @@
+import { closeSync, mkdtempSync, openSync, rmSync, writeSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { SlottedPage } from "../src/storage/page.js";
+import { PageFile } from "../src/storage/page-file.js";
 
 describe("SlottedPage invariants", () => {
   it("preserves readable records across insert/delete patterns", () => {
@@ -31,5 +35,29 @@ describe("SlottedPage invariants", () => {
     const roundTripped = SlottedPage.from(page.toBuffer());
     const reloaded = new Map(roundTripped.scan().map((entry) => [entry.slotId, entry.payload.toString("utf8")]));
     expect(reloaded).toEqual(inserted);
+  });
+
+  it("detects corrupted persisted pages with checksums", () => {
+    const dir = mkdtempSync(join(tmpdir(), "ydb-page-"));
+    const filePath = join(dir, "users.heap");
+
+    try {
+      const pageFile = new PageFile(filePath);
+      const pageId = pageFile.allocatePage();
+      const page = pageFile.readPage(pageId);
+      page.insert(Buffer.from("checksum-protected", "utf8"));
+      pageFile.writePage(pageId, page);
+
+      const fd = openSync(filePath, "r+");
+      try {
+        writeSync(fd, Buffer.from([0xff]), 0, 1, 128);
+      } finally {
+        closeSync(fd);
+      }
+
+      expect(() => new PageFile(filePath).readPage(pageId)).toThrow(/checksum mismatch/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

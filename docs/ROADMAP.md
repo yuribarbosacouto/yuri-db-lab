@@ -23,8 +23,9 @@ This roadmap is based on the portfolio audit priorities: automation first, then 
 - [x] WAL replay into a fresh directory
 - [x] WAL replay at startup
 - [x] Crash simulation tests
-- [ ] Atomic commit marker validation
-- [ ] Storage checksums
+- [x] Atomic commit marker validation
+- [x] Storage checksums
+- [ ] Fsync strategy
 - [ ] Page compaction
 
 ## Phase 3: query engine

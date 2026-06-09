@@ -1,6 +1,6 @@
 {
   "name": "yuri-db-lab",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "A from-scratch database systems lab with SQL parsing, slotted pages, WAL, B+Tree indexing, CLI, and benchmarks.",
   "type": "module",

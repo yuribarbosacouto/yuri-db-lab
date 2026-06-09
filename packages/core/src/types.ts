@@ -122,6 +122,7 @@ export type RecoveryReport = {
   recordsApplied: number;
   transactionsCommitted: number;
   transactionsRolledBack: number;
+  invalidCommitMarkers: number;
 };
 
 export type StartupRecoveryReport = {
@@ -132,4 +133,5 @@ export type StartupRecoveryReport = {
   transactionsCommitted: number;
   transactionsRolledBack: number;
   incompleteTransactionsDiscarded: number;
+  invalidCommitMarkers: number;
 };

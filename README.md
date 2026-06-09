@@ -17,7 +17,9 @@ This project is a technical lab, not a production database. The implemented feat
 
 - SQL parser for `CREATE TABLE`, `INSERT`, `SELECT`, `UPDATE`, `DELETE`, `BEGIN`, `COMMIT`, and `ROLLBACK`.
 - File-backed heap storage built on 4KB slotted pages.
+- Page-level checksum manifests for persisted heap pages.
 - JSONL write-ahead log for table and row mutations.
+- Commit markers with logical record counts for transaction batch validation.
 - In-memory B+Tree primary-key index rebuilt from heap files at startup.
 - Secondary indexes with `CREATE INDEX` and `CREATE UNIQUE INDEX`.
 - Query planner that explains primary-key lookup, secondary-index lookup, index-ordered scan, or heap scan.
@@ -34,13 +36,14 @@ This project is a technical lab, not a production database. The implemented feat
 ## Partial / Experimental
 
 - B+Tree snapshots are persisted as JSON snapshots, not as a page-oriented index file.
-- Startup recovery replays the logical WAL, but this lab does not yet model fsync, torn page checksums, or atomic directory swaps.
+- Checksums detect corrupted heap pages, but the engine does not yet repair damaged pages.
+- Startup recovery replays the logical WAL, but this lab does not yet model fsync policy or atomic directory swaps.
 - Transactions queue writes and apply them at commit; there is no MVCC or isolation model yet.
 - The planner explains index-vs-scan choices, but it is still rule-based rather than cost-based.
 
 ## Next Steps
 
-- Atomic commit marker validation and storage checksums.
+- Fsync strategy and stronger torn-write handling.
 - Page-oriented persistent B+Tree storage.
 - Cost estimates based on row count, selectivity, and index cardinality.
 - Joins, aggregation, and a stricter SQL grammar.
@@ -136,6 +139,7 @@ Key architecture decisions:
 
 - [ADR 001: Build a database systems lab](docs/ADR-001-database-lab.md)
 - [ADR 002: Startup WAL recovery](docs/ADR-002-startup-wal-recovery.md)
+- [ADR 003: Page checksums and commit marker validation](docs/ADR-003-checksums-and-commit-markers.md)
 
 ## SQL dialect
 
@@ -165,7 +169,7 @@ See [docs/SQL_DIALECT.md](docs/SQL_DIALECT.md) for details.
 
 ## Roadmap
 
-The next milestones are atomic commit validation, storage checksums, persistent B+Tree pages, property-based tests, and benchmark history. See [docs/ROADMAP.md](docs/ROADMAP.md).
+The next milestones are fsync strategy, stronger torn-write handling, persistent B+Tree pages, property-based tests, and benchmark history. See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## References that shaped the scope
 

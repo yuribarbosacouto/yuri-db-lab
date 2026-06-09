@@ -2,6 +2,21 @@
 
 All notable changes to Yuri DB Lab are documented here.
 
+## [0.4.0] - 2026-06-09
+
+### Added
+
+- Page-level checksum manifests for persisted heap pages.
+- Corruption detection when reading pages whose checksums no longer match.
+- Transaction commit markers now include logical `recordCount` values.
+- Startup and manual WAL recovery reject transaction batches whose commit marker count does not match the batch.
+- Tests for page corruption detection, invalid commit markers, and commit marker record counts.
+- ADR 003 documenting page checksums and commit marker validation.
+
+### Changed
+
+- Storage, recovery, architecture, roadmap, README, and docs site now describe the stronger durability checks.
+
 ## [0.3.0] - 2026-06-09
 
 ### Added

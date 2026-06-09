@@ -11,6 +11,15 @@ The storage engine uses three concepts: page files, slotted pages, and heap file
 - `writePage(pageId, page)`
 - `pageCount()`
 
+Each written page also updates a sidecar checksum manifest:
+
+```text
+tables/users.heap
+tables/users.heap.checksums.json
+```
+
+On read, `PageFile` recalculates the page checksum and throws if the stored value does not match. Existing legacy pages without a checksum entry can still be read, but every new write records a checksum.
+
 ## Slotted page
 
 `SlottedPage` stores variable-size records inside a fixed page.
@@ -50,4 +59,5 @@ Opening a database triggers logical WAL recovery. The engine replays committed r
 - Deleted payload bytes are not compacted yet.
 - The heap file scans pages linearly for insert space.
 - The B+Tree is not stored in its own page file yet.
-- Recovery does not yet model fsync, torn page checksums, or atomic directory swaps.
+- Checksums detect page corruption, but they do not repair damaged pages.
+- Recovery does not yet model fsync policy or atomic directory swaps.

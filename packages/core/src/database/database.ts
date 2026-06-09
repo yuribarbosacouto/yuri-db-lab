@@ -33,6 +33,7 @@ type ActiveTransaction = {
 };
 
 type IndexMap = Map<string, BPlusTree<RowId>>;
+type WalRecordInput = Parameters<WriteAheadLog["append"]>[0];
 type YuriDatabaseOptions = {
   recoverOnOpen?: boolean;
 };
@@ -44,6 +45,7 @@ export class YuriDatabase {
   private readonly indexes: IndexMap = new Map();
   private readonly startupRecoveryReport: StartupRecoveryReport | null;
   private activeTransaction: ActiveTransaction | null = null;
+  private logicalWalRecordsWritten = 0;
   private txCounter = Date.now();
 
   constructor(private readonly dataDir: string, options: YuriDatabaseOptions = {}) {
@@ -88,6 +90,7 @@ export class YuriDatabase {
     let recordsApplied = 0;
     let transactionsCommitted = 0;
     let transactionsRolledBack = 0;
+    let invalidCommitMarkers = 0;
 
     for (const record of records) {
       if (record.type === "begin") {
@@ -100,6 +103,11 @@ export class YuriDatabase {
         continue;
       }
       if (record.type === "commit") {
+        if (!recovered.isCommitMarkerValid(record, pending ?? [])) {
+          pending = null;
+          invalidCommitMarkers += 1;
+          continue;
+        }
         for (const queued of pending ?? []) {
           if (recovered.applyRecoveredWalRecord(queued)) recordsApplied += 1;
         }
@@ -121,6 +129,7 @@ export class YuriDatabase {
       recordsApplied,
       transactionsCommitted,
       transactionsRolledBack,
+      invalidCommitMarkers,
     };
   }
 
@@ -153,10 +162,12 @@ export class YuriDatabase {
   private commit(): Omit<QueryResult, "elapsedMs"> {
     if (!this.activeTransaction) throw new Error("No active transaction");
     const transaction = this.activeTransaction;
+    const recordsBeforeCommit = this.logicalWalRecordsWritten;
     for (const statement of transaction.statements) {
       this.applyStatement(statement, transaction.txId);
     }
-    this.wal.append({ txId: transaction.txId, type: "commit" });
+    const recordCount = this.logicalWalRecordsWritten - recordsBeforeCommit;
+    this.wal.append({ txId: transaction.txId, type: "commit", recordCount });
     this.activeTransaction = null;
     return emptyResult(`committed ${transaction.statements.length} statements in tx ${transaction.txId}`);
   }
@@ -177,6 +188,7 @@ export class YuriDatabase {
     let transactionsCommitted = 0;
     let transactionsRolledBack = 0;
     let incompleteTransactionsDiscarded = 0;
+    let invalidCommitMarkers = 0;
 
     for (const record of records) {
       if (record.type === "begin") {
@@ -196,6 +208,12 @@ export class YuriDatabase {
       }
 
       if (record.type === "commit") {
+        if (!this.isCommitMarkerValid(record, pending ?? [])) {
+          if (pending) recordsUndone += this.undoRecoveredWalBatch(pending);
+          pending = null;
+          invalidCommitMarkers += 1;
+          continue;
+        }
         for (const queued of pending ?? []) {
           if (this.applyRecoveredWalRecord(queued)) recordsApplied += 1;
         }
@@ -228,7 +246,13 @@ export class YuriDatabase {
       transactionsCommitted,
       transactionsRolledBack,
       incompleteTransactionsDiscarded,
+      invalidCommitMarkers,
     };
+  }
+
+  private isCommitMarkerValid(record: Extract<WalRecord, { type: "commit" }>, pending: WalRecord[]): boolean {
+    if (record.recordCount === undefined) return true;
+    return record.recordCount === pending.length;
   }
 
   private undoRecoveredWalBatch(records: WalRecord[]): number {
@@ -312,7 +336,7 @@ export class YuriDatabase {
   }
 
   private createTable(schema: TableSchema, txId: number): Omit<QueryResult, "elapsedMs"> {
-    this.wal.append({ txId, type: "create_table", schema });
+    this.appendLogicalWalRecord({ txId, type: "create_table", schema });
     this.catalog.createTable(schema);
     this.heapFor(schema.name);
     this.loadOrRebuildTableIndexes(this.requireTable(schema.name));
@@ -321,7 +345,7 @@ export class YuriDatabase {
 
   private createIndex(index: IndexSchema, txId: number): Omit<QueryResult, "elapsedMs"> {
     this.assertIndexCanBeBuilt(index);
-    this.wal.append({ txId, type: "create_index", index });
+    this.appendLogicalWalRecord({ txId, type: "create_index", index });
     this.catalog.createIndex(index);
     this.rebuildIndex(index.table, index.column, index);
     return emptyResult(`created index ${index.name} on ${index.table}(${index.column})`);
@@ -345,7 +369,7 @@ export class YuriDatabase {
     }
     this.assertUniqueIndexesAvailable(tableName, row);
 
-    this.wal.append({ txId, type: "insert", table: tableName, row });
+    this.appendLogicalWalRecord({ txId, type: "insert", table: tableName, row });
     const rowId = this.heapFor(tableName).insert(row);
     this.addRowToIndexes(tableName, row, rowId);
     this.wal.append({ txId, type: "insert_applied", table: tableName, rowId });
@@ -406,7 +430,7 @@ export class YuriDatabase {
     for (const entry of entries) {
       const next = this.normalizeRow(schema, { ...entry.row, ...patch });
       this.assertPrimaryKeyAvailable(tableName, schema, entry.row, next);
-      this.wal.append({ txId, type: "update", table: tableName, before: entry.row, after: next });
+      this.appendLogicalWalRecord({ txId, type: "update", table: tableName, before: entry.row, after: next });
       this.heapFor(tableName).delete(entry.rowId);
       this.heapFor(tableName).insert(next);
       updated += 1;
@@ -423,7 +447,7 @@ export class YuriDatabase {
     const plan = planSelect(schema, primaryKey.name, this.catalog.indexesForTable(tableName), where);
     const entries = this.resolveRows(tableName, plan).filter((entry) => matches(entry.row, where));
     for (const entry of entries) {
-      this.wal.append({ txId, type: "delete", table: tableName, rowId: entry.rowId, row: entry.row });
+      this.appendLogicalWalRecord({ txId, type: "delete", table: tableName, rowId: entry.rowId, row: entry.row });
       this.heapFor(tableName).delete(entry.rowId);
     }
     if (entries.length > 0) this.rebuildTableIndexes(tableName);
@@ -675,6 +699,11 @@ export class YuriDatabase {
   private nextAutocommitTxId(): number {
     this.txCounter += 1;
     return this.txCounter;
+  }
+
+  private appendLogicalWalRecord(record: WalRecordInput): void {
+    this.wal.append(record);
+    this.logicalWalRecordsWritten += 1;
   }
 }
 

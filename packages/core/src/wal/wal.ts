@@ -4,7 +4,7 @@ import type { IndexSchema, Row, RowId, TableSchema } from "../types.js";
 
 export type WalRecord =
   | { txId: number; type: "begin"; at: string }
-  | { txId: number; type: "commit"; at: string }
+  | { txId: number; type: "commit"; at: string; recordCount?: number }
   | { txId: number; type: "rollback"; at: string }
   | { txId: number; type: "create_table"; at: string; schema: TableSchema }
   | { txId: number; type: "create_index"; at: string; index: IndexSchema }

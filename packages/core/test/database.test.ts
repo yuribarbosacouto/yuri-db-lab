@@ -167,4 +167,50 @@ describe("YuriDatabase", () => {
     expect(reopened.startupRecovery()?.recordsUndone).toBe(1);
     expect(reopened.execute("select * from users where id = 4").rows).toEqual([]);
   });
+
+  it("rejects transaction batches with invalid commit markers on startup", () => {
+    const db = new YuriDatabase(dir);
+    db.execute("create table users (id int primary key, name text)");
+
+    const wal = new WriteAheadLog(join(dir, "wal.jsonl"));
+    wal.append({ txId: 4001, type: "begin" });
+    wal.append({ txId: 4001, type: "insert", table: "users", row: { id: 5, name: "Invalid" } });
+    wal.append({ txId: 4001, type: "commit", recordCount: 2 });
+
+    const reopened = new YuriDatabase(dir);
+
+    expect(reopened.startupRecovery()?.invalidCommitMarkers).toBe(1);
+    expect(reopened.execute("select * from users where id = 5").rows).toEqual([]);
+  });
+
+  it("rejects transaction batches with invalid commit markers during manual WAL recovery", () => {
+    const db = new YuriDatabase(dir);
+    db.execute("create table users (id int primary key, name text)");
+
+    const wal = new WriteAheadLog(join(dir, "wal.jsonl"));
+    wal.append({ txId: 5001, type: "begin" });
+    wal.append({ txId: 5001, type: "insert", table: "users", row: { id: 6, name: "Invalid" } });
+    wal.append({ txId: 5001, type: "commit", recordCount: 2 });
+
+    const recoveredDir = `${dir}-manual-recovered`;
+    const report = YuriDatabase.recoverFromWal(dir, recoveredDir);
+    const recovered = new YuriDatabase(recoveredDir);
+
+    expect(report.invalidCommitMarkers).toBe(1);
+    expect(recovered.execute("select * from users where id = 6").rows).toEqual([]);
+
+    rmSync(recoveredDir, { recursive: true, force: true });
+  });
+
+  it("writes commit markers with the number of logical WAL records", () => {
+    const db = new YuriDatabase(dir);
+    db.execute("create table users (id int primary key, name text)");
+    db.execute("begin");
+    db.execute("insert into users (id, name) values (6, 'Counted')");
+    db.execute("commit");
+
+    const commits = new WriteAheadLog(join(dir, "wal.jsonl")).readAll().filter((record) => record.type === "commit");
+
+    expect(commits.at(-1)).toMatchObject({ type: "commit", recordCount: 1 });
+  });
 });
