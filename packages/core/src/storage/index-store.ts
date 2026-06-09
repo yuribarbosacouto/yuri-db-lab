@@ -1,15 +1,18 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { BPlusTree } from "../btree/btree.js";
+import { compareScalars } from "../sql/evaluator.js";
 import type { RowId, Scalar } from "../types.js";
 import { PageFile } from "./page-file.js";
 import { SlottedPage } from "./page.js";
+
+type IndexEntry = { key: Scalar; rowIds: RowId[] };
 
 type IndexSnapshot = {
   version: 1;
   table: string;
   column: string;
-  entries: Array<{ key: Scalar; rowIds: RowId[] }>;
+  entries: IndexEntry[];
 };
 
 type IndexPage =
@@ -28,7 +31,7 @@ type IndexPage =
       table: string;
       column: string;
       nextPageId: number | null;
-      entries: Array<{ key: Scalar; rowIds: RowId[] }>;
+      entries: IndexEntry[];
     }
   | {
       version: 2;
@@ -42,6 +45,11 @@ type IndexPage =
 type ChildRef = {
   pageId: number;
   firstKey: Scalar | null;
+};
+
+type PageSplit = {
+  separator: Scalar;
+  rightPageId: number;
 };
 
 export type IndexStoreInfo = {
@@ -93,6 +101,40 @@ export class IndexStore {
       pageCount,
     };
     writeIndexPage(pageFile, 0, meta);
+  }
+
+  insert(table: string, column: string, key: Scalar, rowId: RowId): void {
+    if (key === null) throw new Error("Index keys cannot be null");
+
+    if (!existsSync(this.filePath) || new PageFile(this.filePath).pageCount() === 0) {
+      const tree = this.loadLegacySnapshot(table, column) ?? new BPlusTree<RowId>(32);
+      tree.insert(key, rowId);
+      this.save(table, column, tree);
+      return;
+    }
+
+    const pageFile = new PageFile(this.filePath);
+    const meta = readIndexPage(pageFile, 0);
+    assertIndexPage(meta, table, column);
+    if (meta.kind !== "meta") throw new Error(`Index store ${this.filePath} page 0 is not a meta page`);
+
+    const split = insertIntoIndexPage(pageFile, table, column, meta.rootPageId, key, rowId);
+    const updatedMeta: IndexPage =
+      split === null
+        ? { ...meta, pageCount: pageFile.pageCount() }
+        : {
+            ...meta,
+            rootPageId: writeNewIndexPage(pageFile, {
+              version: 2,
+              kind: "internal",
+              table,
+              column,
+              keys: [split.separator],
+              children: [meta.rootPageId, split.rightPageId],
+            }),
+            pageCount: pageFile.pageCount(),
+          };
+    writeIndexPage(pageFile, 0, updatedMeta);
   }
 
   load(table: string, column: string): BPlusTree<RowId> | null {
@@ -174,9 +216,9 @@ function resetPageFile(filePath: string): void {
   rmSync(`${filePath}.checksums.json`, { force: true });
 }
 
-function chunkIndexEntries(entries: Array<{ key: Scalar; rowIds: RowId[] }>): Array<Array<{ key: Scalar; rowIds: RowId[] }>> {
-  const chunks: Array<Array<{ key: Scalar; rowIds: RowId[] }>> = [];
-  let current: Array<{ key: Scalar; rowIds: RowId[] }> = [];
+function chunkIndexEntries(entries: IndexEntry[]): IndexEntry[][] {
+  const chunks: IndexEntry[][] = [];
+  let current: IndexEntry[] = [];
 
   for (const entry of entries) {
     if (!fitsIndexPage({ version: 2, kind: "leaf", table: "", column: "", nextPageId: null, entries: [entry] })) {
@@ -266,6 +308,149 @@ function writeIndexPage(pageFile: PageFile, pageId: number, page: IndexPage): vo
   if (slotId === null) throw new Error(`Index page ${pageId} is too large`);
   while (pageFile.pageCount() <= pageId) pageFile.allocatePage();
   pageFile.writePage(pageId, slotted);
+}
+
+function writeNewIndexPage(pageFile: PageFile, page: IndexPage): number {
+  const pageId = pageFile.pageCount();
+  writeIndexPage(pageFile, pageId, page);
+  return pageId;
+}
+
+function insertIntoIndexPage(
+  pageFile: PageFile,
+  table: string,
+  column: string,
+  pageId: number,
+  key: Scalar,
+  rowId: RowId,
+): PageSplit | null {
+  const page = readIndexPage(pageFile, pageId);
+  assertIndexPage(page, table, column);
+
+  if (page.kind === "leaf") {
+    return insertIntoLeafPage(pageFile, pageId, page, key, rowId);
+  }
+
+  if (page.kind !== "internal") {
+    throw new Error(`Cannot insert into ${page.kind} index page ${pageId}`);
+  }
+
+  const childIndex = findChildIndex(page.keys, key);
+  const childPageId = page.children[childIndex];
+  if (childPageId === undefined) throw new Error(`Index internal page ${pageId} points to a missing child`);
+
+  const childSplit = insertIntoIndexPage(pageFile, table, column, childPageId, key, rowId);
+  if (!childSplit) return null;
+
+  const nextKeys = [...page.keys];
+  const nextChildren = [...page.children];
+  nextKeys.splice(childIndex, 0, childSplit.separator);
+  nextChildren.splice(childIndex + 1, 0, childSplit.rightPageId);
+
+  const updated: IndexPage = { ...page, keys: nextKeys, children: nextChildren };
+  if (fitsIndexPage(updated)) {
+    writeIndexPage(pageFile, pageId, updated);
+    return null;
+  }
+
+  return splitInternalPage(pageFile, pageId, updated);
+}
+
+function insertIntoLeafPage(pageFile: PageFile, pageId: number, page: Extract<IndexPage, { kind: "leaf" }>, key: Scalar, rowId: RowId): PageSplit | null {
+  const entries = insertIndexEntry(page.entries, key, rowId);
+  const updated: IndexPage = { ...page, entries };
+  if (fitsIndexPage(updated)) {
+    writeIndexPage(pageFile, pageId, updated);
+    return null;
+  }
+
+  return splitLeafPage(pageFile, pageId, updated);
+}
+
+function splitLeafPage(pageFile: PageFile, pageId: number, page: Extract<IndexPage, { kind: "leaf" }>): PageSplit {
+  const midpoint = Math.ceil(page.entries.length / 2);
+  const leftEntries = page.entries.slice(0, midpoint);
+  const rightEntries = page.entries.slice(midpoint);
+  const separator = rightEntries[0]?.key;
+  if (separator === undefined) throw new Error(`Cannot split index leaf page ${pageId} without a separator`);
+
+  const rightPageId = pageFile.pageCount();
+  const left: IndexPage = { ...page, entries: leftEntries, nextPageId: rightPageId };
+  const right: IndexPage = { ...page, entries: rightEntries, nextPageId: page.nextPageId };
+
+  if (!fitsIndexPage(left) || !fitsIndexPage(right)) {
+    throw new Error(`Index leaf page ${pageId} cannot be split into valid pages`);
+  }
+
+  writeIndexPage(pageFile, pageId, left);
+  writeIndexPage(pageFile, rightPageId, right);
+  return { separator, rightPageId };
+}
+
+function splitInternalPage(pageFile: PageFile, pageId: number, page: Extract<IndexPage, { kind: "internal" }>): PageSplit {
+  const midpoint = Math.floor(page.keys.length / 2);
+  const separator = page.keys[midpoint];
+  if (separator === undefined) throw new Error(`Cannot split index internal page ${pageId} without a separator`);
+
+  const left: IndexPage = {
+    ...page,
+    keys: page.keys.slice(0, midpoint),
+    children: page.children.slice(0, midpoint + 1),
+  };
+  const right: IndexPage = {
+    ...page,
+    keys: page.keys.slice(midpoint + 1),
+    children: page.children.slice(midpoint + 1),
+  };
+
+  if (!fitsIndexPage(left) || !fitsIndexPage(right)) {
+    throw new Error(`Index internal page ${pageId} cannot be split into valid pages`);
+  }
+
+  const rightPageId = pageFile.pageCount();
+  writeIndexPage(pageFile, pageId, left);
+  writeIndexPage(pageFile, rightPageId, right);
+  return { separator, rightPageId };
+}
+
+function insertIndexEntry(entries: IndexEntry[], key: Scalar, rowId: RowId): IndexEntry[] {
+  if (!fitsIndexPage({ version: 2, kind: "leaf", table: "", column: "", nextPageId: null, entries: [{ key, rowIds: [rowId] }] })) {
+    throw new Error(`Index entry for key ${String(key)} is too large for one index page`);
+  }
+
+  const next = entries.map((entry) => ({ key: entry.key, rowIds: [...entry.rowIds] }));
+  const index = findInsertIndex(next.map((entry) => entry.key), key);
+  if (index < next.length && compareScalars(next[index]!.key, key) === 0) {
+    if (!next[index]!.rowIds.some((candidate) => rowIdEquals(candidate, rowId))) {
+      next[index]!.rowIds.push(rowId);
+    }
+  } else {
+    next.splice(index, 0, { key, rowIds: [rowId] });
+  }
+  return next;
+}
+
+function findInsertIndex(keys: Scalar[], key: Scalar): number {
+  let low = 0;
+  let high = keys.length;
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (compareScalars(keys[mid]!, key) < 0) low = mid + 1;
+    else high = mid;
+  }
+  return low;
+}
+
+function findChildIndex(keys: Scalar[], key: Scalar): number {
+  let index = 0;
+  while (index < keys.length && compareScalars(key, keys[index]!) >= 0) {
+    index += 1;
+  }
+  return index;
+}
+
+function rowIdEquals(left: RowId, right: RowId): boolean {
+  return left.pageId === right.pageId && left.slotId === right.slotId;
 }
 
 function readIndexPage(pageFile: PageFile, pageId: number): IndexPage {

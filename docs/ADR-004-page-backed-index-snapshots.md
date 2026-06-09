@@ -26,4 +26,4 @@ The database still serves queries through the in-memory `BPlusTree`. Loading an 
 
 The project now has a real page layout for persisted index snapshots, checksum protection for index pages, and a clearer path toward a mutable disk B+Tree.
 
-This is not yet an incremental on-disk B+Tree. Rebuilds rewrite the page-backed snapshot, and future work still needs mutable page splits, parent updates, free-page reuse, and search directly over disk pages.
+Version 0.6.0 added mutable insert splits and root replacement. Future work still needs delete/rebalance, free-page reuse, and search directly over disk pages.

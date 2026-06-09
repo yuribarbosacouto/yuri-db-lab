@@ -2,6 +2,22 @@
 
 All notable changes to Yuri DB Lab are documented here.
 
+## [0.6.0] - 2026-06-09
+
+### Added
+
+- Mutable page-backed B+Tree index inserts.
+- Leaf page splits with linked-leaf updates.
+- Internal page splits with separator propagation.
+- Root replacement when the old root overflows.
+- Database insert path now updates `indexes/*.idx` incrementally instead of rewriting every index snapshot.
+- Tests for mutable page splits, root changes, and persisted post-`CREATE INDEX` inserts.
+- ADR 005 documenting mutable index inserts and remaining delete/rebalance work.
+
+### Changed
+
+- Documentation now distinguishes implemented mutable inserts from future B+Tree delete/rebalance and direct on-disk search.
+
 ## [0.5.0] - 2026-06-09
 
 ### Added

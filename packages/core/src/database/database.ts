@@ -236,7 +236,9 @@ export class YuriDatabase {
       incompleteTransactionsDiscarded += 1;
     }
 
-    this.rebuildAllIndexes();
+    if (recordsApplied > 0 || recordsUndone > 0 || incompleteTransactionsDiscarded > 0 || invalidCommitMarkers > 0) {
+      this.rebuildAllIndexes();
+    }
 
     return {
       dataDir: this.dataDir,
@@ -646,21 +648,17 @@ export class YuriDatabase {
     const schema = this.requireTable(tableName);
     const primaryKey = this.primaryKey(schema);
     const primaryValue = row[primaryKey.name] ?? null;
-    if (primaryValue !== null) this.indexFor(tableName, primaryKey.name).insert(primaryValue, rowId);
+    if (primaryValue !== null) {
+      this.indexFor(tableName, primaryKey.name).insert(primaryValue, rowId);
+      this.indexStoreFor(tableName, primaryKey.name).insert(tableName, primaryKey.name, primaryValue, rowId);
+    }
 
     for (const index of this.catalog.indexesForTable(tableName)) {
       const value = row[index.column] ?? null;
-      if (value !== null) this.indexFor(tableName, index.column).insert(value, rowId);
-    }
-    this.persistTableIndexes(tableName);
-  }
-
-  private persistTableIndexes(tableName: string): void {
-    const schema = this.requireTable(tableName);
-    const primaryKey = this.primaryKey(schema);
-    this.indexStoreFor(tableName, primaryKey.name).save(tableName, primaryKey.name, this.indexFor(tableName, primaryKey.name));
-    for (const index of this.catalog.indexesForTable(tableName)) {
-      this.indexStoreFor(tableName, index.column).save(tableName, index.column, this.indexFor(tableName, index.column));
+      if (value !== null) {
+        this.indexFor(tableName, index.column).insert(value, rowId);
+        this.indexStoreFor(tableName, index.column).insert(tableName, index.column, value, rowId);
+      }
     }
   }
 

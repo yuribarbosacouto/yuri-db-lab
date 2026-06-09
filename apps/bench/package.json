@@ -1,6 +1,6 @@
 {
   "name": "@ydb/bench",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -8,6 +8,6 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "@ydb/core": "0.5.0"
+    "@ydb/core": "0.6.0"
   }
 }

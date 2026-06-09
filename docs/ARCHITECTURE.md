@@ -46,7 +46,7 @@ indexes/*.idx      page-backed B+Tree index snapshots
 indexes/*.idx.checksums.json index page checksum manifests
 ```
 
-The heap file is durable and each written page has a checksum entry. Index snapshots are persisted as page-backed B+Tree files with a meta page, leaf pages, and internal pages. They can also be rebuilt from heap rows. Startup recovery replays committed logical WAL records, validates transaction commit markers when present, and undoes incomplete transaction batches. The explicit CLI recovery command can still rebuild a fresh database directory from logged operations.
+The heap file is durable and each written page has a checksum entry. Indexes are persisted as page-backed B+Tree files with a meta page, leaf pages, and internal pages. Inserts mutate those index pages with leaf/internal splits and root replacement. Updates and deletes still rebuild affected indexes. Startup recovery replays committed logical WAL records, validates transaction commit markers when present, and undoes incomplete transaction batches. The explicit CLI recovery command can still rebuild a fresh database directory from logged operations.
 
 ## Why this shape
 
@@ -55,7 +55,7 @@ Large systems such as kernels, browsers, and ML frameworks survive by separating
 ## Extension points
 
 - Fsync strategy and stronger torn-write handling.
-- Incremental mutable B+Tree page splits.
+- B+Tree delete/rebalance and direct on-disk search.
 - Secondary indexes.
 - Query planner with scan/index cost choices.
 - Joins and aggregation.

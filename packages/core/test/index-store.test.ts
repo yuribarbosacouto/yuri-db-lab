@@ -67,4 +67,34 @@ describe("IndexStore", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("supports mutable inserts with leaf and root splits in page-backed indexes", () => {
+    const dir = mkdtempSync(join(tmpdir(), "ydb-index-"));
+    const filePath = join(dir, "users.id.idx");
+
+    try {
+      const store = new IndexStore(filePath);
+      store.save("users", "id", new BPlusTree<RowId>(4));
+
+      for (let id = 1; id <= 180; id += 1) {
+        store.insert("users", "id", id, { pageId: Math.floor(id / 12), slotId: id % 12 });
+      }
+
+      const info = store.inspect("users", "id");
+      const loaded = store.load("users", "id");
+
+      expect(info.format).toBe("paged-btree");
+      expect(info.rootPageId).not.toBe(info.firstLeafPageId);
+      expect(info.pageCount).toBeGreaterThan(2);
+      expect(loaded?.search(1)).toEqual([{ pageId: 0, slotId: 1 }]);
+      expect(loaded?.search(180)).toEqual([{ pageId: 15, slotId: 0 }]);
+      expect(loaded?.range(40, 42)).toEqual([
+        { pageId: 3, slotId: 4 },
+        { pageId: 3, slotId: 5 },
+        { pageId: 3, slotId: 6 },
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

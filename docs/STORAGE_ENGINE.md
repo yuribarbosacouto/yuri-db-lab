@@ -57,7 +57,7 @@ indexes/users.age.idx
 indexes/users.age.idx.checksums.json
 ```
 
-The index file contains a meta page, linked leaf pages, and internal pages. Loading an index scans the leaf chain and rebuilds the in-memory B+Tree. This is an immutable page-backed snapshot, not an in-place mutable disk B+Tree yet.
+The index file contains a meta page, linked leaf pages, and internal pages. Inserts mutate the file in place: leaf pages split, separator keys propagate through internal pages, and the root is replaced when it overflows. Loading an index still scans the leaf chain and rebuilds the in-memory B+Tree.
 
 ## Startup recovery
 
@@ -67,6 +67,7 @@ Opening a database triggers logical WAL recovery. The engine replays committed r
 
 - Deleted payload bytes are not compacted yet.
 - The heap file scans pages linearly for insert space.
-- B+Tree persistence rewrites immutable page-backed snapshots instead of doing incremental page splits.
+- B+Tree deletes and rebalancing are not implemented yet; update/delete paths rebuild affected indexes.
+- Queries still use the in-memory B+Tree after load rather than searching disk pages directly.
 - Checksums detect page corruption, but they do not repair damaged pages.
 - Recovery does not yet model fsync policy or atomic directory swaps.

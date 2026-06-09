@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { YuriDatabase } from "../src/database/database.js";
 import { HeapFile } from "../src/storage/heap-file.js";
+import { IndexStore } from "../src/storage/index-store.js";
 import { WriteAheadLog } from "../src/wal/wal.js";
 
 let dir = "";
@@ -88,8 +89,14 @@ describe("YuriDatabase", () => {
     expect(existsSync(join(dir, "indexes", "users.age.idx"))).toBe(true);
     expect(existsSync(join(dir, "indexes", "users.age.idx.checksums.json"))).toBe(true);
 
+    db.execute("insert into users (id, name, age) values (4, 'Bia', 31)");
+    const indexStore = new IndexStore(join(dir, "indexes", "users.age.idx"));
+    const pageCountBeforeReopen = indexStore.inspect("users", "age").pageCount;
+
     const reopened = new YuriDatabase(dir);
     expect(reopened.execute("select id from users where age = 23").plan?.strategy).toBe("secondary-index");
+    expect(reopened.execute("select id from users where age = 31").rows).toEqual([{ id: 4 }]);
+    expect(indexStore.inspect("users", "age").pageCount).toBe(pageCountBeforeReopen);
   });
 
   it("rejects unique secondary indexes with duplicated keys", () => {

@@ -32,4 +32,4 @@ For transactions, `commit` WAL records now include a logical `recordCount`. Star
 
 The engine can now detect corrupted persisted pages and reject malformed transaction commits. This moves the lab closer to real storage-engine durability behavior without pretending to implement full production crash safety.
 
-The remaining durability gaps are explicit: fsync policy, atomic file replacement, torn-write handling, page repair, and incremental B+Tree page updates.
+The remaining durability gaps are explicit: fsync policy, atomic file replacement, torn-write handling, page repair, and B+Tree delete/rebalance.

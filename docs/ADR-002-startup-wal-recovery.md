@@ -26,4 +26,4 @@ The explicit `recover --from --to` command remains useful for rebuilding a separ
 
 The database now has a real crash-recovery path for the lab's logical WAL model. This improves the project from a manual recovery demo to a more database-like runtime.
 
-This does not yet model every durability guarantee of a production engine. Later releases added commit marker validation, page checksums, and page-backed index snapshots, but future work still includes fsync strategy, torn-write handling, page compaction, and incremental B+Tree page updates.
+This does not yet model every durability guarantee of a production engine. Later releases added commit marker validation, page checksums, page-backed index snapshots, and mutable index inserts, but future work still includes fsync strategy, torn-write handling, page compaction, and B+Tree delete/rebalance.
