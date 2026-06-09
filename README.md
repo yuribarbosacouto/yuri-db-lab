@@ -1,5 +1,7 @@
 # Yuri DB Lab
 
+Technical-depth lab in the portfolio: a from-scratch database systems study that explains parser, storage, indexes, WAL, query planning, and recovery beneath the kinds of systems shown in OpsFlow.
+
 [![CI](https://github.com/yuribarbosacouto/yuri-db-lab/actions/workflows/ci.yml/badge.svg)](https://github.com/yuribarbosacouto/yuri-db-lab/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/yuribarbosacouto/yuri-db-lab/actions/workflows/codeql.yml/badge.svg)](https://github.com/yuribarbosacouto/yuri-db-lab/actions/workflows/codeql.yml)
 
