@@ -23,6 +23,7 @@ This project is a technical lab, not a production database. The implemented feat
 - Query planner that explains primary-key lookup, secondary-index lookup, index-ordered scan, or heap scan.
 - `ORDER BY` and `LIMIT` for `SELECT`.
 - Persisted index snapshots under the database directory.
+- Automatic WAL replay when opening a database, including redo for committed records and undo for incomplete transaction batches.
 - WAL-based recovery into a fresh database directory through an explicit CLI command.
 - Transaction queue with commit and rollback for write statements.
 - CLI with one-shot SQL execution and interactive shell.
@@ -32,14 +33,14 @@ This project is a technical lab, not a production database. The implemented feat
 
 ## Partial / Experimental
 
-- WAL recovery is explicit (`recover --from --to`), not automatic crash recovery on open.
 - B+Tree snapshots are persisted as JSON snapshots, not as a page-oriented index file.
+- Startup recovery replays the logical WAL, but this lab does not yet model fsync, torn page checksums, or atomic directory swaps.
 - Transactions queue writes and apply them at commit; there is no MVCC or isolation model yet.
 - The planner explains index-vs-scan choices, but it is still rule-based rather than cost-based.
 
 ## Next Steps
 
-- Automatic WAL replay when opening a database after an interrupted run.
+- Atomic commit marker validation and storage checksums.
 - Page-oriented persistent B+Tree storage.
 - Cost estimates based on row count, selectivity, and index cardinality.
 - Joins, aggregation, and a stricter SQL grammar.
@@ -81,6 +82,13 @@ Recover a database from its WAL into a new directory:
 node apps/cli/dist/index.js recover --from .ydb --to .ydb-recovered
 ```
 
+Inspect automatic startup recovery from code:
+
+```ts
+const db = new YuriDatabase(".ydb");
+console.log(db.startupRecovery());
+```
+
 ## Example output
 
 ```text
@@ -99,6 +107,8 @@ flowchart LR
   DB --> Parser["SQL parser"]
   DB --> Catalog["catalog.json"]
   DB --> WAL["wal.jsonl"]
+  WAL --> Recovery["startup recovery"]
+  Recovery --> Heap
   DB --> Planner["Query planner"]
   DB --> Heap["Heap files"]
   Heap --> Pages["4KB slotted pages"]
@@ -121,6 +131,11 @@ apps/cli       command-line SQL runner and shell
 apps/bench     reproducible local benchmark
 docs/          architecture, SQL dialect, storage internals, roadmap
 ```
+
+Key architecture decisions:
+
+- [ADR 001: Build a database systems lab](docs/ADR-001-database-lab.md)
+- [ADR 002: Startup WAL recovery](docs/ADR-002-startup-wal-recovery.md)
 
 ## SQL dialect
 
@@ -150,7 +165,7 @@ See [docs/SQL_DIALECT.md](docs/SQL_DIALECT.md) for details.
 
 ## Roadmap
 
-The next milestones are automatic recovery replay, persistent B+Tree pages, property-based tests, and a small documentation site with diagrams and benchmark history. See [docs/ROADMAP.md](docs/ROADMAP.md).
+The next milestones are atomic commit validation, storage checksums, persistent B+Tree pages, property-based tests, and benchmark history. See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## References that shaped the scope
 

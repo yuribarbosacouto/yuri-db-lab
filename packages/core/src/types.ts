@@ -123,3 +123,13 @@ export type RecoveryReport = {
   transactionsCommitted: number;
   transactionsRolledBack: number;
 };
+
+export type StartupRecoveryReport = {
+  dataDir: string;
+  recordsRead: number;
+  recordsApplied: number;
+  recordsUndone: number;
+  transactionsCommitted: number;
+  transactionsRolledBack: number;
+  incompleteTransactionsDiscarded: number;
+};

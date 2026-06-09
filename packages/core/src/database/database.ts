@@ -17,6 +17,7 @@ import type {
   Row,
   RowId,
   Scalar,
+  StartupRecoveryReport,
   Statement,
   TableSchema,
 } from "../types.js";
@@ -32,21 +33,26 @@ type ActiveTransaction = {
 };
 
 type IndexMap = Map<string, BPlusTree<RowId>>;
+type YuriDatabaseOptions = {
+  recoverOnOpen?: boolean;
+};
 
 export class YuriDatabase {
   private readonly catalog: Catalog;
   private readonly wal: WriteAheadLog;
   private readonly heaps = new Map<string, HeapFile>();
   private readonly indexes: IndexMap = new Map();
+  private readonly startupRecoveryReport: StartupRecoveryReport | null;
   private activeTransaction: ActiveTransaction | null = null;
   private txCounter = Date.now();
 
-  constructor(private readonly dataDir: string) {
+  constructor(private readonly dataDir: string, options: YuriDatabaseOptions = {}) {
     mkdirSync(dataDir, { recursive: true });
     mkdirSync(join(dataDir, "tables"), { recursive: true });
     mkdirSync(join(dataDir, "indexes"), { recursive: true });
     this.catalog = new Catalog(join(dataDir, "catalog.json"));
     this.wal = new WriteAheadLog(join(dataDir, "wal.jsonl"));
+    this.startupRecoveryReport = options.recoverOnOpen === false ? null : this.recoverWalOnOpen();
     for (const table of this.catalog.listTables()) {
       this.heapFor(table.name);
       this.loadOrRebuildTableIndexes(table);
@@ -67,13 +73,17 @@ export class YuriDatabase {
     return this.catalog.listTables();
   }
 
+  startupRecovery(): StartupRecoveryReport | null {
+    return this.startupRecoveryReport ? { ...this.startupRecoveryReport } : null;
+  }
+
   static recoverFromWal(sourceDir: string, targetDir: string): RecoveryReport {
     if (existsSync(targetDir)) {
       throw new Error(`Recovery target already exists: ${targetDir}`);
     }
 
     const records = new WriteAheadLog(join(sourceDir, "wal.jsonl")).readAll();
-    const recovered = new YuriDatabase(targetDir);
+    const recovered = new YuriDatabase(targetDir, { recoverOnOpen: false });
     let pending: WalRecord[] | null = null;
     let recordsApplied = 0;
     let transactionsCommitted = 0;
@@ -102,6 +112,7 @@ export class YuriDatabase {
       if (pending) pending.push(record);
       else if (recovered.applyRecoveredWalRecord(record)) recordsApplied += 1;
     }
+    recovered.rebuildAllIndexes();
 
     return {
       sourceDir,
@@ -156,6 +167,97 @@ export class YuriDatabase {
     this.wal.append({ txId: transaction.txId, type: "rollback" });
     this.activeTransaction = null;
     return emptyResult(`rolled back ${transaction.statements.length} queued statements`);
+  }
+
+  private recoverWalOnOpen(): StartupRecoveryReport {
+    const records = this.wal.readAll();
+    let pending: WalRecord[] | null = null;
+    let recordsApplied = 0;
+    let recordsUndone = 0;
+    let transactionsCommitted = 0;
+    let transactionsRolledBack = 0;
+    let incompleteTransactionsDiscarded = 0;
+
+    for (const record of records) {
+      if (record.type === "begin") {
+        if (pending) {
+          recordsUndone += this.undoRecoveredWalBatch(pending);
+          incompleteTransactionsDiscarded += 1;
+        }
+        pending = [];
+        continue;
+      }
+
+      if (record.type === "rollback") {
+        if (pending) recordsUndone += this.undoRecoveredWalBatch(pending);
+        pending = null;
+        transactionsRolledBack += 1;
+        continue;
+      }
+
+      if (record.type === "commit") {
+        for (const queued of pending ?? []) {
+          if (this.applyRecoveredWalRecord(queued)) recordsApplied += 1;
+        }
+        pending = null;
+        transactionsCommitted += 1;
+        continue;
+      }
+
+      if (record.type === "insert_applied") continue;
+
+      if (pending) {
+        pending.push(record);
+      } else if (this.applyRecoveredWalRecord(record)) {
+        recordsApplied += 1;
+      }
+    }
+
+    if (pending) {
+      recordsUndone += this.undoRecoveredWalBatch(pending);
+      incompleteTransactionsDiscarded += 1;
+    }
+
+    this.rebuildAllIndexes();
+
+    return {
+      dataDir: this.dataDir,
+      recordsRead: records.length,
+      recordsApplied,
+      recordsUndone,
+      transactionsCommitted,
+      transactionsRolledBack,
+      incompleteTransactionsDiscarded,
+    };
+  }
+
+  private undoRecoveredWalBatch(records: WalRecord[]): number {
+    let recordsUndone = 0;
+    for (let index = records.length - 1; index >= 0; index -= 1) {
+      if (this.undoRecoveredWalRecord(records[index]!)) recordsUndone += 1;
+    }
+    return recordsUndone;
+  }
+
+  private undoRecoveredWalRecord(record: WalRecord): boolean {
+    switch (record.type) {
+      case "insert":
+        return this.deleteRecoveredRow(record.table, record.row);
+      case "update": {
+        const removedAfter = this.deleteRecoveredRow(record.table, record.after);
+        const restoredBefore = this.insertRecoveredRow(record.table, record.before);
+        return removedAfter || restoredBefore;
+      }
+      case "delete":
+        return this.insertRecoveredRow(record.table, record.row);
+      case "begin":
+      case "commit":
+      case "rollback":
+      case "create_table":
+      case "create_index":
+      case "insert_applied":
+        return false;
+    }
   }
 
   private applyRecoveredWalRecord(record: WalRecord): boolean {
@@ -375,6 +477,12 @@ export class YuriDatabase {
     this.rebuildIndex(tableName, primaryKey.name);
     for (const index of this.catalog.indexesForTable(tableName)) {
       this.rebuildIndex(tableName, index.column, index);
+    }
+  }
+
+  private rebuildAllIndexes(): void {
+    for (const table of this.catalog.listTables()) {
+      this.rebuildTableIndexes(table.name);
     }
   }
 

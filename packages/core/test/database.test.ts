@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { YuriDatabase } from "../src/database/database.js";
+import { HeapFile } from "../src/storage/heap-file.js";
+import { WriteAheadLog } from "../src/wal/wal.js";
 
 let dir = "";
 
@@ -119,5 +121,50 @@ describe("YuriDatabase", () => {
     expect(recovered.execute("select * from users where id = 3").rows).toEqual([]);
 
     rmSync(recoveredDir, { recursive: true, force: true });
+  });
+
+  it("replays committed autocommit WAL records when opening the database", () => {
+    const db = new YuriDatabase(dir);
+    db.execute("create table users (id int primary key, name text)");
+
+    const wal = new WriteAheadLog(join(dir, "wal.jsonl"));
+    wal.append({ txId: 1001, type: "insert", table: "users", row: { id: 2, name: "Recovered" } });
+
+    const reopened = new YuriDatabase(dir);
+
+    expect(reopened.startupRecovery()?.recordsApplied).toBeGreaterThanOrEqual(1);
+    expect(reopened.execute("select * from users where id = 2").rows).toEqual([{ id: 2, name: "Recovered" }]);
+  });
+
+  it("replays committed transaction batches when opening the database", () => {
+    const db = new YuriDatabase(dir);
+    db.execute("create table users (id int primary key, name text)");
+
+    const wal = new WriteAheadLog(join(dir, "wal.jsonl"));
+    wal.append({ txId: 2001, type: "begin" });
+    wal.append({ txId: 2001, type: "insert", table: "users", row: { id: 3, name: "Committed" } });
+    wal.append({ txId: 2001, type: "commit" });
+
+    const reopened = new YuriDatabase(dir);
+
+    expect(reopened.startupRecovery()?.transactionsCommitted).toBeGreaterThanOrEqual(1);
+    expect(reopened.execute("select * from users where id = 3").rows).toEqual([{ id: 3, name: "Committed" }]);
+  });
+
+  it("undoes heap changes from incomplete transaction batches when opening the database", () => {
+    const db = new YuriDatabase(dir);
+    db.execute("create table users (id int primary key, name text)");
+
+    const row = { id: 4, name: "Uncommitted" };
+    const wal = new WriteAheadLog(join(dir, "wal.jsonl"));
+    wal.append({ txId: 3001, type: "begin" });
+    wal.append({ txId: 3001, type: "insert", table: "users", row });
+    new HeapFile(join(dir, "tables", "users.heap")).insert(row);
+
+    const reopened = new YuriDatabase(dir);
+
+    expect(reopened.startupRecovery()?.incompleteTransactionsDiscarded).toBe(1);
+    expect(reopened.startupRecovery()?.recordsUndone).toBe(1);
+    expect(reopened.execute("select * from users where id = 4").rows).toEqual([]);
   });
 });

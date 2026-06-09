@@ -42,6 +42,20 @@ Rows are ordered after retrieval. If there is no predicate and the `ORDER BY` co
 
 ## Recovery
 
+When `YuriDatabase` opens a directory, it reads `wal.jsonl` and performs startup recovery:
+
+- autocommit mutation records are replayed idempotently;
+- records inside `begin`/`commit` batches are replayed only after the commit marker;
+- records inside an incomplete transaction batch are undone in reverse order;
+- indexes are rebuilt after recovery so stale snapshots do not survive a crash path.
+
+The startup report is available from code:
+
+```ts
+const db = new YuriDatabase(".ydb");
+console.log(db.startupRecovery());
+```
+
 The CLI can rebuild a fresh database directory from the write-ahead log:
 
 ```bash

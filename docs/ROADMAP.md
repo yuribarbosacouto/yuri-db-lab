@@ -21,8 +21,8 @@ This roadmap is based on the portfolio audit priorities: automation first, then 
 ## Phase 2: durability
 
 - [x] WAL replay into a fresh directory
-- [ ] WAL replay at startup
-- [ ] Crash simulation tests
+- [x] WAL replay at startup
+- [x] Crash simulation tests
 - [ ] Atomic commit marker validation
 - [ ] Storage checksums
 - [ ] Page compaction
@@ -45,7 +45,7 @@ This roadmap is based on the portfolio audit priorities: automation first, then 
 
 ## Phase 5: open-source polish
 
-- [ ] Releases with changelog
+- [x] Releases with changelog
 - [ ] Architecture decision records for major changes
 - [ ] More issue labels and contribution guide examples
 - [ ] Demo dataset and walkthrough

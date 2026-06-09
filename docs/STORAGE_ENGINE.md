@@ -41,9 +41,13 @@ The row id is stable until the row is deleted. Updates are implemented as delete
 
 The primary-key B+Tree maps scalar keys to row ids. It is currently in-memory and rebuilt from heap files when the database opens. This mirrors a common systems lesson: indexes can be derived from durable table data, but rebuilding them has startup cost.
 
+## Startup recovery
+
+Opening a database triggers logical WAL recovery. The engine replays committed records that were written to the log before the heap saw them, and it undoes records from incomplete transaction batches that may have reached the heap before a crash. Indexes are rebuilt after recovery.
+
 ## Known limitations
 
 - Deleted payload bytes are not compacted yet.
 - The heap file scans pages linearly for insert space.
 - The B+Tree is not stored in its own page file yet.
-- WAL replay does not yet recover incomplete writes.
+- Recovery does not yet model fsync, torn page checksums, or atomic directory swaps.

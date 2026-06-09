@@ -20,6 +20,7 @@ export type {
   Row,
   RowId,
   Scalar,
+  StartupRecoveryReport,
   Statement,
   TableSchema,
 } from "./types.js";

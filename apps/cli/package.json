@@ -1,6 +1,6 @@
 {
   "name": "@ydb/cli",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "bin": {
     "ydb": "dist/index.js"
@@ -11,6 +11,6 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "@ydb/core": "0.2.0"
+    "@ydb/core": "0.3.0"
   }
 }

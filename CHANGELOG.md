@@ -2,6 +2,22 @@
 
 All notable changes to Yuri DB Lab are documented here.
 
+## [0.3.0] - 2026-06-09
+
+### Added
+
+- Automatic startup WAL recovery when opening a database directory.
+- Idempotent redo for committed autocommit and transaction WAL records.
+- Undo handling for incomplete transaction batches left without a `commit` marker.
+- Startup recovery report exposed through `YuriDatabase.startupRecovery()`.
+- Crash simulation tests covering redo, committed transaction replay, and undo of uncommitted heap changes.
+- ADR 002 documenting the startup WAL recovery decision and remaining durability limits.
+
+### Changed
+
+- Indexes are rebuilt after startup recovery so stale snapshots do not survive crash paths.
+- Roadmap, architecture, storage, query engine, README, and docs site now describe the durability model more precisely.
+
 ## [0.2.0] - 2026-06-09
 
 ### Added
