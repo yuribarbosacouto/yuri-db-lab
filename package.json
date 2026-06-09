@@ -1,0 +1,28 @@
+{
+  "name": "yuri-db-lab",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A from-scratch database systems lab with SQL parsing, slotted pages, WAL, B+Tree indexing, CLI, and benchmarks.",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @ydb/core && npm run build -w @ydb/cli && npm run build -w @ydb/bench",
+    "typecheck": "npm run typecheck -w @ydb/core && npm run typecheck -w @ydb/cli && npm run typecheck -w @ydb/bench",
+    "lint": "eslint .",
+    "test": "npm run test -w @ydb/core",
+    "bench": "npm run build -w @ydb/core && npm run build -w @ydb/bench && node apps/bench/dist/index.js",
+    "audit": "npm audit --audit-level=moderate",
+    "quality": "npm run lint && npm run typecheck && npm run test && npm run audit && npm run build"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "25.9.1",
+    "eslint": "^10.4.1",
+    "typescript": "6.0.3",
+    "typescript-eslint": "^8.61.0",
+    "vitest": "4.1.8"
+  }
+}

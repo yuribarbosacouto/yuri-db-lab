@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Yuri DB Lab</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f7f7f2;
+        --ink: #1d2329;
+        --muted: #59636e;
+        --line: #d9dfd6;
+        --accent: #126f83;
+        --accent-2: #8b3f2f;
+        --panel: #ffffff;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: var(--ink);
+        background: var(--bg);
+      }
+      header {
+        border-bottom: 1px solid var(--line);
+        background: var(--panel);
+      }
+      .wrap {
+        width: min(1120px, calc(100% - 32px));
+        margin: 0 auto;
+      }
+      .hero {
+        min-height: 62vh;
+        display: grid;
+        align-content: center;
+        gap: 22px;
+        padding: 64px 0 48px;
+      }
+      h1 {
+        max-width: 850px;
+        margin: 0;
+        font-size: clamp(2.5rem, 6vw, 5.5rem);
+        line-height: 0.95;
+        letter-spacing: 0;
+      }
+      p {
+        max-width: 760px;
+        color: var(--muted);
+        font-size: 1.05rem;
+        line-height: 1.65;
+      }
+      .commands {
+        display: grid;
+        gap: 8px;
+        max-width: 860px;
+        margin-top: 10px;
+      }
+      code {
+        display: block;
+        overflow-x: auto;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 12px 14px;
+        background: #12181f;
+        color: #e9f4f5;
+      }
+      main {
+        padding: 42px 0 72px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+      }
+      section {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 18px;
+        background: var(--panel);
+      }
+      h2 {
+        margin: 0 0 10px;
+        font-size: 1rem;
+      }
+      ul {
+        margin: 0;
+        padding-left: 18px;
+        color: var(--muted);
+        line-height: 1.7;
+      }
+      a {
+        color: var(--accent);
+        font-weight: 700;
+      }
+      .accent {
+        color: var(--accent-2);
+      }
+      @media (max-width: 760px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+        .hero {
+          min-height: auto;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="wrap hero">
+        <h1>Yuri DB Lab</h1>
+        <p>
+          A from-scratch database systems lab with SQL parsing, slotted pages, heap storage, WAL,
+          primary-key indexing, CLI workflows, benchmarks, tests, and open-source project hygiene.
+        </p>
+        <div class="commands" aria-label="Quickstart commands">
+          <code>npm install && npm run build</code>
+          <code>node apps/cli/dist/index.js shell --dir .ydb</code>
+          <code>npm run bench -- --rows 1000</code>
+        </div>
+      </div>
+    </header>
+    <main class="wrap">
+      <div class="grid">
+        <section>
+          <h2>Systems Core</h2>
+          <ul>
+            <li>4KB slotted pages</li>
+            <li>File-backed heap storage</li>
+            <li>JSONL write-ahead log</li>
+            <li>B+Tree primary-key index</li>
+          </ul>
+        </section>
+        <section>
+          <h2>Developer Workflow</h2>
+          <ul>
+            <li>TypeScript strict mode</li>
+            <li>Vitest suite</li>
+            <li>GitHub Actions CI</li>
+            <li>CodeQL and Dependabot</li>
+          </ul>
+        </section>
+        <section>
+          <h2>Study Direction</h2>
+          <ul>
+            <li><a href="https://github.com/torvalds/linux">Linux</a></li>
+            <li><a href="https://github.com/chromium/chromium">Chromium</a></li>
+            <li><a href="https://github.com/codecrafters-io/build-your-own-x">Build Your Own X</a></li>
+            <li><a href="https://github.com/donnemartin/system-design-primer">System Design Primer</a></li>
+          </ul>
+        </section>
+      </div>
+      <p>
+        Read the full repository documentation on
+        <a href="https://github.com/yuribarbosacouto/yuri-db-lab">GitHub</a>.
+        <span class="accent">This is a real systems project, not a mock product screen.</span>
+      </p>
+    </main>
+  </body>
+</html>

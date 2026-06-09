@@ -1,0 +1,8 @@
+node_modules
+dist
+coverage
+.ydb
+.tmp
+*.log
+.env
+.DS_Store
