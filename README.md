@@ -7,7 +7,11 @@ Yuri DB Lab is a from-scratch database systems project built in TypeScript. It i
 
 The benchmark set for this project is architectural, not vanity-based. Linux, Chromium, TensorFlow, System Design Primer, and Build Your Own X are valuable because they expose layered design, deep documentation, reproducible workflows, testing discipline, and maintainable growth. Yuri DB Lab applies those same habits to a smaller but real system.
 
-## What works today
+## Maturity Snapshot
+
+This project is a technical lab, not a production database. The implemented features are real and tested, but durability, query planning, and indexing are intentionally scoped for study.
+
+## Implemented
 
 - SQL parser for `CREATE TABLE`, `INSERT`, `SELECT`, `UPDATE`, `DELETE`, `BEGIN`, `COMMIT`, and `ROLLBACK`.
 - File-backed heap storage built on 4KB slotted pages.
@@ -17,12 +21,27 @@ The benchmark set for this project is architectural, not vanity-based. Linux, Ch
 - Query planner that explains primary-key lookup, secondary-index lookup, index-ordered scan, or heap scan.
 - `ORDER BY` and `LIMIT` for `SELECT`.
 - Persisted index snapshots under the database directory.
-- WAL-based recovery into a fresh database directory.
+- WAL-based recovery into a fresh database directory through an explicit CLI command.
 - Transaction queue with commit and rollback for write statements.
 - CLI with one-shot SQL execution and interactive shell.
-- Benchmark runner for inserts, primary-key point reads, and heap scans.
+- Benchmark runner for inserts, primary-key point reads, secondary-index reads, and heap scans.
 - Vitest coverage for parser, B+Tree behavior, persistence, transactions, and mutation paths.
 - GitHub Actions CI, CodeQL, Dependabot, and GitHub Pages documentation.
+
+## Partial / Experimental
+
+- WAL recovery is explicit (`recover --from --to`), not automatic crash recovery on open.
+- B+Tree snapshots are persisted as JSON snapshots, not as a page-oriented index file.
+- Transactions queue writes and apply them at commit; there is no MVCC or isolation model yet.
+- The planner explains index-vs-scan choices, but it is still rule-based rather than cost-based.
+
+## Next Steps
+
+- Automatic WAL replay when opening a database after an interrupted run.
+- Page-oriented persistent B+Tree storage.
+- Cost estimates based on row count, selectivity, and index cardinality.
+- Joins, aggregation, and a stricter SQL grammar.
+- Property-based tests for parser, page layout, and WAL replay invariants.
 
 ## Quickstart
 
@@ -78,9 +97,11 @@ flowchart LR
   DB --> Parser["SQL parser"]
   DB --> Catalog["catalog.json"]
   DB --> WAL["wal.jsonl"]
+  DB --> Planner["Query planner"]
   DB --> Heap["Heap files"]
   Heap --> Pages["4KB slotted pages"]
-  DB --> Index["B+Tree primary-key index"]
+  DB --> Index["B+Tree indexes"]
+  Index --> Snapshots["Index snapshots"]
 ```
 
 ## Project map
@@ -125,16 +146,9 @@ See [docs/SQL_DIALECT.md](docs/SQL_DIALECT.md) for details.
 - Make every claim testable with a local command.
 - Grow toward more ambitious systems features through explicit milestones.
 
-## Current limits
-
-- WAL recovery can rebuild into a fresh directory, but it is not yet automatic crash recovery on open.
-- B+Tree snapshots are persisted, but the B+Tree is not yet stored as a true page-oriented index file.
-- Transactions queue writes and apply them at commit; they are not MVCC or fully isolated.
-- SQL support is intentionally minimal and does not include joins, aggregation, foreign keys, or MVCC yet.
-
 ## Roadmap
 
-The next milestones are recovery replay, persistent B+Tree pages, query planning, secondary indexes, property-based tests, and a small documentation site with diagrams and benchmarks. See [docs/ROADMAP.md](docs/ROADMAP.md).
+The next milestones are automatic recovery replay, persistent B+Tree pages, property-based tests, and a small documentation site with diagrams and benchmark history. See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## References that shaped the scope
 
