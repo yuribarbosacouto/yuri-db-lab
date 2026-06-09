@@ -2,6 +2,23 @@
 
 All notable changes to Yuri DB Lab are documented here.
 
+## [0.5.0] - 2026-06-09
+
+### Added
+
+- Page-backed B+Tree index snapshot format under `indexes/*.idx`.
+- Index meta pages, linked leaf pages, and internal pages persisted through `PageFile`.
+- Checksum manifests for persisted index page files.
+- Legacy fallback for older `indexes/*.idx.json` snapshots.
+- `IndexStore.inspect()` diagnostics for the index storage format.
+- Tests for paged index persistence, legacy JSON fallback, and database-level `*.idx` creation.
+- ADR 004 documenting the page-backed index snapshot decision and remaining mutable B+Tree work.
+
+### Changed
+
+- `YuriDatabase` now writes indexes to `indexes/*.idx` instead of `indexes/*.idx.json`.
+- Storage, query engine, architecture, roadmap, README, and docs site now describe paged index snapshots.
+
 ## [0.4.0] - 2026-06-09
 
 ### Added

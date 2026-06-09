@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -85,6 +85,8 @@ describe("YuriDatabase", () => {
 
     expect(result.plan?.strategy).toBe("secondary-index");
     expect(result.rows).toEqual([{ id: 3, age: 29 }]);
+    expect(existsSync(join(dir, "indexes", "users.age.idx"))).toBe(true);
+    expect(existsSync(join(dir, "indexes", "users.age.idx.checksums.json"))).toBe(true);
 
     const reopened = new YuriDatabase(dir);
     expect(reopened.execute("select id from users where age = 23").plan?.strategy).toBe("secondary-index");

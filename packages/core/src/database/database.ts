@@ -693,7 +693,7 @@ export class YuriDatabase {
   }
 
   private indexStoreFor(tableName: string, column: string): IndexStore {
-    return new IndexStore(join(this.dataDir, "indexes", `${tableName}.${column}.idx.json`));
+    return new IndexStore(join(this.dataDir, "indexes", `${tableName}.${column}.idx`));
   }
 
   private nextAutocommitTxId(): number {

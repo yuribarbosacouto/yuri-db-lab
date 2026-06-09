@@ -48,7 +48,16 @@ The row id is stable until the row is deleted. Updates are implemented as delete
 
 ## Indexing
 
-The primary-key B+Tree maps scalar keys to row ids. It is currently in-memory and rebuilt from heap files when the database opens. This mirrors a common systems lesson: indexes can be derived from durable table data, but rebuilding them has startup cost.
+The primary-key and secondary B+Tree indexes map scalar keys to row ids. In memory, queries use `BPlusTree`. On disk, index snapshots are written as page-backed files:
+
+```text
+indexes/users.id.idx
+indexes/users.id.idx.checksums.json
+indexes/users.age.idx
+indexes/users.age.idx.checksums.json
+```
+
+The index file contains a meta page, linked leaf pages, and internal pages. Loading an index scans the leaf chain and rebuilds the in-memory B+Tree. This is an immutable page-backed snapshot, not an in-place mutable disk B+Tree yet.
 
 ## Startup recovery
 
@@ -58,6 +67,6 @@ Opening a database triggers logical WAL recovery. The engine replays committed r
 
 - Deleted payload bytes are not compacted yet.
 - The heap file scans pages linearly for insert space.
-- The B+Tree is not stored in its own page file yet.
+- B+Tree persistence rewrites immutable page-backed snapshots instead of doing incremental page splits.
 - Checksums detect page corruption, but they do not repair damaged pages.
 - Recovery does not yet model fsync policy or atomic directory swaps.

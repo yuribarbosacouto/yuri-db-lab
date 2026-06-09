@@ -22,6 +22,7 @@ This project is a technical lab, not a production database. The implemented feat
 - Commit markers with logical record counts for transaction batch validation.
 - In-memory B+Tree primary-key index rebuilt from heap files at startup.
 - Secondary indexes with `CREATE INDEX` and `CREATE UNIQUE INDEX`.
+- Page-backed B+Tree index snapshots with meta, leaf, and internal pages under `indexes/*.idx`.
 - Query planner that explains primary-key lookup, secondary-index lookup, index-ordered scan, or heap scan.
 - `ORDER BY` and `LIMIT` for `SELECT`.
 - Persisted index snapshots under the database directory.
@@ -35,7 +36,7 @@ This project is a technical lab, not a production database. The implemented feat
 
 ## Partial / Experimental
 
-- B+Tree snapshots are persisted as JSON snapshots, not as a page-oriented index file.
+- B+Tree index persistence uses immutable page-backed snapshots, not incremental in-place page splits yet.
 - Checksums detect corrupted heap pages, but the engine does not yet repair damaged pages.
 - Startup recovery replays the logical WAL, but this lab does not yet model fsync policy or atomic directory swaps.
 - Transactions queue writes and apply them at commit; there is no MVCC or isolation model yet.
@@ -44,7 +45,7 @@ This project is a technical lab, not a production database. The implemented feat
 ## Next Steps
 
 - Fsync strategy and stronger torn-write handling.
-- Page-oriented persistent B+Tree storage.
+- Incremental mutable B+Tree page updates.
 - Cost estimates based on row count, selectivity, and index cardinality.
 - Joins, aggregation, and a stricter SQL grammar.
 - Property-based tests for parser, page layout, and WAL replay invariants.
@@ -116,7 +117,7 @@ flowchart LR
   DB --> Heap["Heap files"]
   Heap --> Pages["4KB slotted pages"]
   DB --> Index["B+Tree indexes"]
-  Index --> Snapshots["Index snapshots"]
+  Index --> IndexPages["paged index snapshots"]
 ```
 
 ## Project map
@@ -140,6 +141,7 @@ Key architecture decisions:
 - [ADR 001: Build a database systems lab](docs/ADR-001-database-lab.md)
 - [ADR 002: Startup WAL recovery](docs/ADR-002-startup-wal-recovery.md)
 - [ADR 003: Page checksums and commit marker validation](docs/ADR-003-checksums-and-commit-markers.md)
+- [ADR 004: Page-backed B+Tree index snapshots](docs/ADR-004-page-backed-index-snapshots.md)
 
 ## SQL dialect
 
@@ -169,7 +171,7 @@ See [docs/SQL_DIALECT.md](docs/SQL_DIALECT.md) for details.
 
 ## Roadmap
 
-The next milestones are fsync strategy, stronger torn-write handling, persistent B+Tree pages, property-based tests, and benchmark history. See [docs/ROADMAP.md](docs/ROADMAP.md).
+The next milestones are fsync strategy, stronger torn-write handling, incremental B+Tree page updates, property-based tests, and benchmark history. See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## References that shaped the scope
 

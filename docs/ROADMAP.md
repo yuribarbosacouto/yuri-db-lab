@@ -38,7 +38,8 @@ This roadmap is based on the portfolio audit priorities: automation first, then 
 
 ## Phase 4: scale and correctness
 
-- [ ] Persistent B+Tree page layout
+- [x] Persistent B+Tree page layout
+- [ ] Incremental mutable B+Tree page splits
 - [ ] Property-based tests for pages and parser
 - [ ] Concurrency model
 - [ ] Snapshot read experiments

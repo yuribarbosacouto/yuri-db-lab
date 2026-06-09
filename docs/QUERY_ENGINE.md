@@ -20,7 +20,7 @@ create index idx_users_age on users (age);
 create unique index idx_users_email on users (email);
 ```
 
-Index metadata is stored in `catalog.json`. Index snapshots are written under `indexes/*.idx.json`.
+Index metadata is stored in `catalog.json`. Index snapshots are written as page-backed files under `indexes/*.idx`, with checksum manifests next to them. Older `indexes/*.idx.json` snapshots can still be loaded as a compatibility fallback.
 
 ## Predicate support
 
