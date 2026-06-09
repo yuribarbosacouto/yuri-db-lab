@@ -9,12 +9,18 @@ This roadmap is based on the portfolio audit priorities: automation first, then 
 - [x] Heap files
 - [x] Write-ahead log
 - [x] Primary-key B+Tree
+- [x] Secondary indexes
+- [x] Query planner explanations
+- [x] `ORDER BY` and `LIMIT`
+- [x] WAL recovery into a fresh directory
+- [x] Persisted index snapshots
 - [x] CLI and shell
 - [x] Benchmarks
 - [x] CI, CodeQL, Dependabot, Pages
 
 ## Phase 2: durability
 
+- [x] WAL replay into a fresh directory
 - [ ] WAL replay at startup
 - [ ] Crash simulation tests
 - [ ] Atomic commit marker validation
@@ -23,10 +29,10 @@ This roadmap is based on the portfolio audit priorities: automation first, then 
 
 ## Phase 3: query engine
 
-- [ ] Query planner
+- [x] Query planner
 - [ ] Cost comparison between index lookup and heap scan
-- [ ] Secondary indexes
-- [ ] Sort and limit
+- [x] Secondary indexes
+- [x] Basic sort and limit
 - [ ] Simple aggregation
 
 ## Phase 4: scale and correctness

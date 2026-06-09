@@ -9,9 +9,17 @@ export type ColumnSchema = {
   nullable?: boolean;
 };
 
+export type IndexSchema = {
+  name: string;
+  table: string;
+  column: string;
+  unique?: boolean;
+};
+
 export type TableSchema = {
   name: string;
   columns: ColumnSchema[];
+  indexes?: IndexSchema[];
 };
 
 export type Row = Record<string, Scalar>;
@@ -29,9 +37,21 @@ export type Predicate = {
   value: Scalar;
 };
 
+export type SortDirection = "asc" | "desc";
+
+export type OrderBy = {
+  column: string;
+  direction: SortDirection;
+};
+
 export type CreateTableStatement = {
   kind: "create_table";
   table: TableSchema;
+};
+
+export type CreateIndexStatement = {
+  kind: "create_index";
+  index: IndexSchema;
 };
 
 export type InsertStatement = {
@@ -46,6 +66,8 @@ export type SelectStatement = {
   table: string;
   columns: string[] | "*";
   where?: Predicate;
+  orderBy?: OrderBy;
+  limit?: number;
 };
 
 export type UpdateStatement = {
@@ -67,6 +89,7 @@ export type TxStatement = {
 
 export type Statement =
   | CreateTableStatement
+  | CreateIndexStatement
   | InsertStatement
   | SelectStatement
   | UpdateStatement
@@ -78,4 +101,25 @@ export type QueryResult = {
   rows: Row[];
   message: string;
   elapsedMs: number;
+  plan?: QueryPlan;
+};
+
+export type QueryPlan = {
+  strategy: "primary-key-index" | "secondary-index" | "index-ordered-scan" | "heap-scan";
+  table: string;
+  indexName?: string;
+  indexColumn?: string;
+  predicate?: Predicate;
+  orderBy?: OrderBy;
+  estimatedCost: number;
+  reason: string;
+};
+
+export type RecoveryReport = {
+  sourceDir: string;
+  targetDir: string;
+  recordsRead: number;
+  recordsApplied: number;
+  transactionsCommitted: number;
+  transactionsRolledBack: number;
 };

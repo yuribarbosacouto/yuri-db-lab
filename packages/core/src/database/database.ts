@@ -1,13 +1,19 @@
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { BPlusTree } from "../btree/btree.js";
 import { Catalog } from "../catalog/catalog.js";
-import { matches } from "../sql/evaluator.js";
+import { planSelect } from "../planner/planner.js";
+import { compareScalars, matches } from "../sql/evaluator.js";
 import { parseSql } from "../sql/parser.js";
 import type {
   ColumnSchema,
+  IndexSchema,
+  OrderBy,
+  Predicate,
   QueryResult,
+  QueryPlan,
+  RecoveryReport,
   Row,
   RowId,
   Scalar,
@@ -16,7 +22,9 @@ import type {
 } from "../types.js";
 import { HeapFile } from "../storage/heap-file.js";
 import type { HeapEntry } from "../storage/heap-file.js";
+import { IndexStore } from "../storage/index-store.js";
 import { WriteAheadLog } from "../wal/wal.js";
+import type { WalRecord } from "../wal/wal.js";
 
 type ActiveTransaction = {
   txId: number;
@@ -36,11 +44,12 @@ export class YuriDatabase {
   constructor(private readonly dataDir: string) {
     mkdirSync(dataDir, { recursive: true });
     mkdirSync(join(dataDir, "tables"), { recursive: true });
+    mkdirSync(join(dataDir, "indexes"), { recursive: true });
     this.catalog = new Catalog(join(dataDir, "catalog.json"));
     this.wal = new WriteAheadLog(join(dataDir, "wal.jsonl"));
     for (const table of this.catalog.listTables()) {
       this.heapFor(table.name);
-      this.rebuildIndex(table.name);
+      this.loadOrRebuildTableIndexes(table);
     }
   }
 
@@ -58,14 +67,60 @@ export class YuriDatabase {
     return this.catalog.listTables();
   }
 
+  static recoverFromWal(sourceDir: string, targetDir: string): RecoveryReport {
+    if (existsSync(targetDir)) {
+      throw new Error(`Recovery target already exists: ${targetDir}`);
+    }
+
+    const records = new WriteAheadLog(join(sourceDir, "wal.jsonl")).readAll();
+    const recovered = new YuriDatabase(targetDir);
+    let pending: WalRecord[] | null = null;
+    let recordsApplied = 0;
+    let transactionsCommitted = 0;
+    let transactionsRolledBack = 0;
+
+    for (const record of records) {
+      if (record.type === "begin") {
+        pending = [];
+        continue;
+      }
+      if (record.type === "rollback") {
+        pending = null;
+        transactionsRolledBack += 1;
+        continue;
+      }
+      if (record.type === "commit") {
+        for (const queued of pending ?? []) {
+          if (recovered.applyRecoveredWalRecord(queued)) recordsApplied += 1;
+        }
+        pending = null;
+        transactionsCommitted += 1;
+        continue;
+      }
+      if (record.type === "insert_applied") continue;
+
+      if (pending) pending.push(record);
+      else if (recovered.applyRecoveredWalRecord(record)) recordsApplied += 1;
+    }
+
+    return {
+      sourceDir,
+      targetDir,
+      recordsRead: records.length,
+      recordsApplied,
+      transactionsCommitted,
+      transactionsRolledBack,
+    };
+  }
+
   private executeStatement(statement: Statement): Omit<QueryResult, "elapsedMs"> {
     if (statement.kind === "begin") return this.begin();
     if (statement.kind === "commit") return this.commit();
     if (statement.kind === "rollback") return this.rollback();
 
     if (this.activeTransaction && statement.kind !== "select") {
-      if (statement.kind === "create_table") {
-        throw new Error("CREATE TABLE is intentionally kept outside transactions in this lab");
+      if (statement.kind === "create_table" || statement.kind === "create_index") {
+        throw new Error(`${statement.kind} is intentionally kept outside transactions in this lab`);
       }
       this.activeTransaction.statements.push(statement);
       return emptyResult(`queued ${statement.kind} in tx ${this.activeTransaction.txId}`);
@@ -103,14 +158,48 @@ export class YuriDatabase {
     return emptyResult(`rolled back ${transaction.statements.length} queued statements`);
   }
 
+  private applyRecoveredWalRecord(record: WalRecord): boolean {
+    switch (record.type) {
+      case "create_table":
+        if (!this.catalog.getTable(record.schema.name)) {
+          this.catalog.createTable(record.schema);
+          this.heapFor(record.schema.name);
+          this.loadOrRebuildTableIndexes(this.requireTable(record.schema.name));
+          return true;
+        }
+        return false;
+      case "create_index":
+        if (!this.catalog.getIndex(record.index.table, record.index.column)) {
+          this.catalog.createIndex(record.index);
+          this.rebuildIndex(record.index.table, record.index.column, record.index);
+          return true;
+        }
+        return false;
+      case "insert":
+        return this.insertRecoveredRow(record.table, record.row);
+      case "update":
+        this.deleteRecoveredRow(record.table, record.before);
+        return this.insertRecoveredRow(record.table, record.after);
+      case "delete":
+        return this.deleteRecoveredRow(record.table, record.row);
+      case "begin":
+      case "commit":
+      case "rollback":
+      case "insert_applied":
+        return false;
+    }
+  }
+
   private applyStatement(statement: Statement, txId: number): Omit<QueryResult, "elapsedMs"> {
     switch (statement.kind) {
       case "create_table":
         return this.createTable(statement.table, txId);
+      case "create_index":
+        return this.createIndex(statement.index, txId);
       case "insert":
         return this.insert(statement.table, statement.columns, statement.values, txId);
       case "select":
-        return this.select(statement.table, statement.columns, statement.where);
+        return this.select(statement.table, statement.columns, statement.where, statement.orderBy, statement.limit);
       case "update":
         return this.update(statement.table, statement.set, statement.where, txId);
       case "delete":
@@ -124,8 +213,16 @@ export class YuriDatabase {
     this.wal.append({ txId, type: "create_table", schema });
     this.catalog.createTable(schema);
     this.heapFor(schema.name);
-    this.rebuildIndex(schema.name);
+    this.loadOrRebuildTableIndexes(this.requireTable(schema.name));
     return emptyResult(`created table ${schema.name}`);
+  }
+
+  private createIndex(index: IndexSchema, txId: number): Omit<QueryResult, "elapsedMs"> {
+    this.assertIndexCanBeBuilt(index);
+    this.wal.append({ txId, type: "create_index", index });
+    this.catalog.createIndex(index);
+    this.rebuildIndex(index.table, index.column, index);
+    return emptyResult(`created index ${index.name} on ${index.table}(${index.column})`);
   }
 
   private insert(tableName: string, columns: string[], values: Scalar[], txId: number): Omit<QueryResult, "elapsedMs"> {
@@ -141,43 +238,67 @@ export class YuriDatabase {
     const primaryKey = this.primaryKey(schema);
     const key = row[primaryKey.name] ?? null;
     if (key === null) throw new Error(`Primary key ${primaryKey.name} cannot be null`);
-    if (this.indexFor(tableName).search(key).length > 0) {
+    if (this.indexFor(tableName, primaryKey.name).search(key).length > 0) {
       throw new Error(`Duplicate primary key on ${tableName}.${primaryKey.name}: ${key}`);
     }
+    this.assertUniqueIndexesAvailable(tableName, row);
 
     this.wal.append({ txId, type: "insert", table: tableName, row });
     const rowId = this.heapFor(tableName).insert(row);
-    this.indexFor(tableName).insert(key, rowId);
+    this.addRowToIndexes(tableName, row, rowId);
     this.wal.append({ txId, type: "insert_applied", table: tableName, rowId });
     return emptyResult(`inserted 1 row into ${tableName}`);
   }
 
-  private select(tableName: string, columns: string[] | "*", where?: StatementWhere): Omit<QueryResult, "elapsedMs"> {
+  private select(
+    tableName: string,
+    columns: string[] | "*",
+    where?: Predicate,
+    orderBy?: OrderBy,
+    limit?: number,
+  ): Omit<QueryResult, "elapsedMs"> {
     const schema = this.requireTable(tableName);
     const selectedColumns = columns === "*" ? schema.columns.map((column) => column.name) : columns;
     this.assertColumns(schema, selectedColumns);
+    if (where) this.assertColumns(schema, [where.column]);
+    if (orderBy) this.assertColumns(schema, [orderBy.column]);
 
-    const rows = this.resolveRows(tableName, schema, where)
+    const primaryKey = this.primaryKey(schema);
+    const plan = planSelect(schema, primaryKey.name, this.catalog.indexesForTable(tableName), where, orderBy);
+    const orderedRows = this.resolveRows(tableName, plan)
       .filter((entry) => matches(entry.row, where))
-      .map((entry) => projectRow(entry.row, selectedColumns));
+      .map((entry) => entry.row);
 
-    const strategy = where && where.column === this.primaryKey(schema).name && where.op === "=" ? "primary-key index" : "heap scan";
+    if (orderBy) {
+      orderedRows.sort((left, right) => {
+        const compared = compareScalars(left[orderBy.column] ?? null, right[orderBy.column] ?? null);
+        return orderBy.direction === "asc" ? compared : -compared;
+      });
+    }
+
+    const limitedRows = limit === undefined ? orderedRows : orderedRows.slice(0, limit);
+    const rows = limitedRows.map((row) => projectRow(row, selectedColumns));
+
     return {
       columns: selectedColumns,
       rows,
-      message: `selected ${rows.length} rows via ${strategy}`,
+      message: `selected ${rows.length} rows via ${plan.strategy}`,
+      plan,
     };
   }
 
   private update(
     tableName: string,
     patch: Record<string, Scalar>,
-    where: StatementWhere | undefined,
+    where: Predicate | undefined,
     txId: number,
   ): Omit<QueryResult, "elapsedMs"> {
     const schema = this.requireTable(tableName);
     this.assertColumns(schema, Object.keys(patch));
-    const entries = this.resolveRows(tableName, schema, where).filter((entry) => matches(entry.row, where));
+    if (where) this.assertColumns(schema, [where.column]);
+    const primaryKey = this.primaryKey(schema);
+    const plan = planSelect(schema, primaryKey.name, this.catalog.indexesForTable(tableName), where);
+    const entries = this.resolveRows(tableName, plan).filter((entry) => matches(entry.row, where));
     let updated = 0;
 
     for (const entry of entries) {
@@ -189,41 +310,91 @@ export class YuriDatabase {
       updated += 1;
     }
 
-    if (updated > 0) this.rebuildIndex(tableName);
+    if (updated > 0) this.rebuildTableIndexes(tableName);
     return emptyResult(`updated ${updated} rows in ${tableName}`);
   }
 
-  private delete(tableName: string, where: StatementWhere | undefined, txId: number): Omit<QueryResult, "elapsedMs"> {
+  private delete(tableName: string, where: Predicate | undefined, txId: number): Omit<QueryResult, "elapsedMs"> {
     const schema = this.requireTable(tableName);
-    const entries = this.resolveRows(tableName, schema, where).filter((entry) => matches(entry.row, where));
+    if (where) this.assertColumns(schema, [where.column]);
+    const primaryKey = this.primaryKey(schema);
+    const plan = planSelect(schema, primaryKey.name, this.catalog.indexesForTable(tableName), where);
+    const entries = this.resolveRows(tableName, plan).filter((entry) => matches(entry.row, where));
     for (const entry of entries) {
       this.wal.append({ txId, type: "delete", table: tableName, rowId: entry.rowId, row: entry.row });
       this.heapFor(tableName).delete(entry.rowId);
     }
-    if (entries.length > 0) this.rebuildIndex(tableName);
+    if (entries.length > 0) this.rebuildTableIndexes(tableName);
     return emptyResult(`deleted ${entries.length} rows from ${tableName}`);
   }
 
-  private resolveRows(tableName: string, schema: TableSchema, where?: StatementWhere): HeapEntry[] {
-    const primaryKey = this.primaryKey(schema);
-    if (where && where.column === primaryKey.name && where.op === "=") {
-      return this.indexFor(tableName)
-        .search(where.value)
-        .map((rowId) => ({ rowId, row: this.heapFor(tableName).read(rowId) }))
-        .filter((entry): entry is HeapEntry => entry.row !== null);
+  private resolveRows(tableName: string, plan: QueryPlan): HeapEntry[] {
+    if (plan.strategy === "primary-key-index" || plan.strategy === "secondary-index") {
+      const rowIds = this.rowIdsFromIndexedPredicate(tableName, plan);
+      return this.entriesFromRowIds(tableName, rowIds);
     }
+
+    if (plan.strategy === "index-ordered-scan" && plan.indexColumn) {
+      const rowIds = this.indexFor(tableName, plan.indexColumn)
+        .entries()
+        .flatMap((entry) => entry.values);
+      return this.entriesFromRowIds(tableName, rowIds);
+    }
+
     return this.heapFor(tableName).scan();
   }
 
-  private rebuildIndex(tableName: string): void {
+  private rowIdsFromIndexedPredicate(tableName: string, plan: QueryPlan): RowId[] {
+    if (!plan.predicate || !plan.indexColumn) return [];
+    const tree = this.indexFor(tableName, plan.indexColumn);
+    const value = plan.predicate.value;
+
+    switch (plan.predicate.op) {
+      case "=":
+        return tree.search(value);
+      case ">":
+      case ">=":
+        return tree.range(value, null);
+      case "<":
+      case "<=":
+        return tree.range(null, value);
+      case "!=":
+        return [];
+    }
+  }
+
+  private entriesFromRowIds(tableName: string, rowIds: RowId[]): HeapEntry[] {
+    return rowIds
+      .map((rowId) => ({ rowId, row: this.heapFor(tableName).read(rowId) }))
+      .filter((entry): entry is HeapEntry => entry.row !== null);
+  }
+
+  private rebuildTableIndexes(tableName: string): void {
     const schema = this.requireTable(tableName);
     const primaryKey = this.primaryKey(schema);
-    const index = new BPlusTree<RowId>(32);
-    for (const entry of this.heapFor(tableName).scan()) {
-      const key = entry.row[primaryKey.name] ?? null;
-      if (key !== null) index.insert(key, entry.rowId);
+    this.rebuildIndex(tableName, primaryKey.name);
+    for (const index of this.catalog.indexesForTable(tableName)) {
+      this.rebuildIndex(tableName, index.column, index);
     }
-    this.indexes.set(tableName, index);
+  }
+
+  private rebuildIndex(tableName: string, column: string, schemaIndex?: IndexSchema): void {
+    const tree = new BPlusTree<RowId>(32);
+    const seenUniqueKeys = new Set<string>();
+    for (const entry of this.heapFor(tableName).scan()) {
+      const key = entry.row[column] ?? null;
+      if (key === null) continue;
+      if (schemaIndex?.unique) {
+        const serialized = JSON.stringify(key);
+        if (seenUniqueKeys.has(serialized)) {
+          throw new Error(`Unique index ${schemaIndex.name} would contain duplicated key ${key}`);
+        }
+        seenUniqueKeys.add(serialized);
+      }
+      tree.insert(key, entry.rowId);
+    }
+    this.indexes.set(indexKey(tableName, column), tree);
+    this.indexStoreFor(tableName, column).save(tableName, column, tree);
   }
 
   private assertPrimaryKeyAvailable(tableName: string, schema: TableSchema, before: Row, after: Row): void {
@@ -232,9 +403,65 @@ export class YuriDatabase {
     const nextKey = after[primaryKey.name] ?? null;
     if (nextKey === null) throw new Error(`Primary key ${primaryKey.name} cannot be null`);
     if (previousKey === nextKey) return;
-    if (this.indexFor(tableName).search(nextKey).length > 0) {
+    if (this.indexFor(tableName, primaryKey.name).search(nextKey).length > 0) {
       throw new Error(`Duplicate primary key on ${tableName}.${primaryKey.name}: ${nextKey}`);
     }
+  }
+
+  private assertUniqueIndexesAvailable(tableName: string, row: Row): void {
+    for (const index of this.catalog.indexesForTable(tableName)) {
+      if (!index.unique) continue;
+      const key = row[index.column] ?? null;
+      if (key !== null && this.indexFor(tableName, index.column).search(key).length > 0) {
+        throw new Error(`Duplicate unique index key on ${index.name}: ${key}`);
+      }
+    }
+  }
+
+  private assertIndexCanBeBuilt(index: IndexSchema): void {
+    const schema = this.requireTable(index.table);
+    this.assertColumns(schema, [index.column]);
+    if (!index.unique) return;
+
+    const seen = new Set<string>();
+    for (const entry of this.heapFor(index.table).scan()) {
+      const key = entry.row[index.column] ?? null;
+      if (key === null) continue;
+      const serialized = JSON.stringify(key);
+      if (seen.has(serialized)) {
+        throw new Error(`Unique index ${index.name} would contain duplicated key ${key}`);
+      }
+      seen.add(serialized);
+    }
+  }
+
+  private insertRecoveredRow(tableName: string, row: Row): boolean {
+    const schema = this.requireTable(tableName);
+    const normalized = this.normalizeRow(schema, row);
+    const primaryKey = this.primaryKey(schema);
+    const key = normalized[primaryKey.name] ?? null;
+    if (key === null) throw new Error(`Primary key ${primaryKey.name} cannot be null`);
+    if (this.indexFor(tableName, primaryKey.name).search(key).length > 0) return false;
+
+    this.assertUniqueIndexesAvailable(tableName, normalized);
+    const rowId = this.heapFor(tableName).insert(normalized);
+    this.addRowToIndexes(tableName, normalized, rowId);
+    return true;
+  }
+
+  private deleteRecoveredRow(tableName: string, row: Row): boolean {
+    const schema = this.requireTable(tableName);
+    const primaryKey = this.primaryKey(schema);
+    const key = row[primaryKey.name] ?? null;
+    if (key === null) return false;
+
+    const rowIds = this.indexFor(tableName, primaryKey.name).search(key);
+    let deleted = false;
+    for (const rowId of rowIds) {
+      deleted = this.heapFor(tableName).delete(rowId) || deleted;
+    }
+    if (deleted) this.rebuildTableIndexes(tableName);
+    return deleted;
   }
 
   private normalizeRow(schema: TableSchema, input: Row): Row {
@@ -283,13 +510,58 @@ export class YuriDatabase {
     return heap;
   }
 
-  private indexFor(tableName: string): BPlusTree<RowId> {
-    const existing = this.indexes.get(tableName);
+  private addRowToIndexes(tableName: string, row: Row, rowId: RowId): void {
+    const schema = this.requireTable(tableName);
+    const primaryKey = this.primaryKey(schema);
+    const primaryValue = row[primaryKey.name] ?? null;
+    if (primaryValue !== null) this.indexFor(tableName, primaryKey.name).insert(primaryValue, rowId);
+
+    for (const index of this.catalog.indexesForTable(tableName)) {
+      const value = row[index.column] ?? null;
+      if (value !== null) this.indexFor(tableName, index.column).insert(value, rowId);
+    }
+    this.persistTableIndexes(tableName);
+  }
+
+  private persistTableIndexes(tableName: string): void {
+    const schema = this.requireTable(tableName);
+    const primaryKey = this.primaryKey(schema);
+    this.indexStoreFor(tableName, primaryKey.name).save(tableName, primaryKey.name, this.indexFor(tableName, primaryKey.name));
+    for (const index of this.catalog.indexesForTable(tableName)) {
+      this.indexStoreFor(tableName, index.column).save(tableName, index.column, this.indexFor(tableName, index.column));
+    }
+  }
+
+  private loadOrRebuildTableIndexes(table: TableSchema): void {
+    const primaryKey = this.primaryKey(table);
+    this.loadOrRebuildIndex(table.name, primaryKey.name);
+    for (const index of table.indexes ?? []) {
+      this.loadOrRebuildIndex(table.name, index.column, index);
+    }
+  }
+
+  private loadOrRebuildIndex(tableName: string, column: string, schemaIndex?: IndexSchema): void {
+    const loaded = this.indexStoreFor(tableName, column).load(tableName, column);
+    if (loaded) {
+      this.indexes.set(indexKey(tableName, column), loaded);
+      return;
+    }
+    this.rebuildIndex(tableName, column, schemaIndex);
+  }
+
+  private indexFor(tableName: string, column: string): BPlusTree<RowId> {
+    const key = indexKey(tableName, column);
+    const existing = this.indexes.get(key);
     if (existing) return existing;
-    this.rebuildIndex(tableName);
-    const rebuilt = this.indexes.get(tableName);
-    if (!rebuilt) throw new Error(`Could not build index for ${tableName}`);
+    const schemaIndex = this.catalog.getIndex(tableName, column) ?? undefined;
+    this.rebuildIndex(tableName, column, schemaIndex);
+    const rebuilt = this.indexes.get(key);
+    if (!rebuilt) throw new Error(`Could not build index for ${tableName}.${column}`);
     return rebuilt;
+  }
+
+  private indexStoreFor(tableName: string, column: string): IndexStore {
+    return new IndexStore(join(this.dataDir, "indexes", `${tableName}.${column}.idx.json`));
   }
 
   private nextAutocommitTxId(): number {
@@ -297,8 +569,6 @@ export class YuriDatabase {
     return this.txCounter;
   }
 }
-
-type StatementWhere = Extract<Statement, { kind: "select" }>["where"];
 
 function coerceValue(column: ColumnSchema, value: Scalar): Scalar {
   if (value === null) return null;
@@ -321,4 +591,8 @@ function projectRow(row: Row, columns: string[]): Row {
 
 function emptyResult(message: string): Omit<QueryResult, "elapsedMs"> {
   return { columns: [], rows: [], message };
+}
+
+function indexKey(tableName: string, column: string): string {
+  return `${tableName}:${column}`;
 }

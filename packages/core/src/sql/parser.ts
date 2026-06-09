@@ -24,6 +24,21 @@ export function parseSql(input: string): Statement {
     return { kind: "create_table", table: parseTableSchema(create[1]!, create[2]!) };
   }
 
+  const createIndex = sql.match(
+    /^create\s+(unique\s+)?index\s+([a-zA-Z_][\w]*)\s+on\s+([a-zA-Z_][\w]*)\s*\(([a-zA-Z_][\w]*)\)$/i,
+  );
+  if (createIndex) {
+    return {
+      kind: "create_index",
+      index: {
+        name: createIndex[2]!,
+        table: createIndex[3]!,
+        column: createIndex[4]!,
+        ...(createIndex[1] ? { unique: true } : {}),
+      },
+    };
+  }
+
   const insert = sql.match(/^insert\s+into\s+([a-zA-Z_][\w]*)\s*\((.+)\)\s+values\s*\((.+)\)$/i);
   if (insert) {
     return {
@@ -34,14 +49,15 @@ export function parseSql(input: string): Statement {
     };
   }
 
-  const select = sql.match(/^select\s+(.+)\s+from\s+([a-zA-Z_][\w]*)(?:\s+where\s+(.+))?$/i);
+  const select = sql.match(/^select\s+(.+)\s+from\s+([a-zA-Z_][\w]*)(.*)$/i);
   if (select) {
     const columns = select[1]!.trim() === "*" ? "*" : splitComma(select[1]!).map((item) => item.trim());
+    const suffix = parseSelectSuffix(select[3] ?? "");
     return {
       kind: "select",
       table: select[2]!,
       columns,
-      ...(select[3] ? { where: parsePredicate(select[3]) } : {}),
+      ...suffix,
     };
   }
 
@@ -71,6 +87,34 @@ export function parseSql(input: string): Statement {
   }
 
   throw new Error(`Unsupported SQL: ${input}`);
+}
+
+function parseSelectSuffix(input: string): Pick<Extract<Statement, { kind: "select" }>, "where" | "orderBy" | "limit"> {
+  let rest = input.trim();
+  const output: Pick<Extract<Statement, { kind: "select" }>, "where" | "orderBy" | "limit"> = {};
+
+  const limit = rest.match(/\s+limit\s+(\d+)\s*$/i);
+  if (limit) {
+    output.limit = Number(limit[1]!);
+    rest = rest.slice(0, limit.index).trim();
+  }
+
+  const orderBy = rest.match(/\s+order\s+by\s+([a-zA-Z_][\w]*)(?:\s+(asc|desc))?\s*$/i);
+  if (orderBy) {
+    output.orderBy = {
+      column: orderBy[1]!,
+      direction: (orderBy[2]?.toLowerCase() ?? "asc") as "asc" | "desc",
+    };
+    rest = rest.slice(0, orderBy.index).trim();
+  }
+
+  if (rest) {
+    const where = rest.match(/^where\s+(.+)$/i);
+    if (!where) throw new Error(`Invalid SELECT suffix: ${input}`);
+    output.where = parsePredicate(where[1]!);
+  }
+
+  return output;
 }
 
 function parseTableSchema(name: string, body: string): TableSchema {

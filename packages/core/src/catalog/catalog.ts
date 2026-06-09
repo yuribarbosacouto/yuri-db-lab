@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import type { ColumnSchema, TableSchema } from "../types.js";
+import type { ColumnSchema, IndexSchema, TableSchema } from "../types.js";
 
 type CatalogDocument = {
   version: 1;
@@ -20,7 +20,24 @@ export class Catalog {
       throw new Error(`Table already exists: ${schema.name}`);
     }
     validateTableSchema(schema);
-    this.document.tables.push(schema);
+    this.document.tables.push({ ...schema, indexes: schema.indexes ?? [] });
+    this.save();
+  }
+
+  createIndex(index: IndexSchema): void {
+    const table = this.getTable(index.table);
+    if (!table) throw new Error(`Unknown table: ${index.table}`);
+    if (!table.columns.some((column) => column.name === index.column)) {
+      throw new Error(`Unknown column ${index.table}.${index.column}`);
+    }
+    if (this.document.tables.some((candidate) => candidate.indexes?.some((existing) => existing.name === index.name))) {
+      throw new Error(`Index already exists: ${index.name}`);
+    }
+    if (table.indexes?.some((existing) => existing.column === index.column)) {
+      throw new Error(`Column ${index.table}.${index.column} is already indexed`);
+    }
+
+    table.indexes = [...(table.indexes ?? []), index];
     this.save();
   }
 
@@ -32,7 +49,20 @@ export class Catalog {
     return this.document.tables.map((table) => ({
       ...table,
       columns: table.columns.map((column) => ({ ...column })),
+      indexes: (table.indexes ?? []).map((index) => ({ ...index })),
     }));
+  }
+
+  indexesForTable(tableName: string): IndexSchema[] {
+    const table = this.getTable(tableName);
+    if (!table) throw new Error(`Unknown table: ${tableName}`);
+    return (table.indexes ?? []).map((index) => ({ ...index }));
+  }
+
+  getIndex(tableName: string, column: string): IndexSchema | null {
+    const table = this.getTable(tableName);
+    if (!table) throw new Error(`Unknown table: ${tableName}`);
+    return table.indexes?.find((index) => index.column === column) ?? null;
   }
 
   primaryKey(tableName: string): ColumnSchema {
@@ -79,5 +109,17 @@ function validateTableSchema(schema: TableSchema): void {
   }
   if (primaryKeys !== 1) {
     throw new Error(`Table ${schema.name} must have exactly one primary key`);
+  }
+
+  for (const index of schema.indexes ?? []) {
+    if (!index.name || !/^[a-zA-Z_]\w*$/.test(index.name)) {
+      throw new Error(`Invalid index name: ${index.name}`);
+    }
+    if (index.table !== schema.name) {
+      throw new Error(`Index ${index.name} belongs to ${index.table}, not ${schema.name}`);
+    }
+    if (!names.has(index.column)) {
+      throw new Error(`Index ${index.name} references unknown column ${schema.name}.${index.column}`);
+    }
   }
 }

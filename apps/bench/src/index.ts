@@ -27,6 +27,13 @@ try {
     }
   });
 
+  db.execute("create index idx_users_age on users (age)");
+  const secondaryIndexMs = timed(() => {
+    for (let age = 20; age < 45; age += 1) {
+      db.execute(`select id, age from users where age = ${age} order by age limit 20`);
+    }
+  });
+
   const heapScanMs = timed(() => {
     db.execute("select * from users where age >= 40");
   });
@@ -34,6 +41,7 @@ try {
   console.table([
     { operation: "insert", rows, ms: insertMs, rowsPerSecond: Math.round((rows / insertMs) * 1000) },
     { operation: "primary-key point reads", rows: Math.min(rows, 500), ms: pointReadMs, rowsPerSecond: Math.round((Math.min(rows, 500) / pointReadMs) * 1000) },
+    { operation: "secondary-index reads", rows: 25, ms: secondaryIndexMs, rowsPerSecond: Math.round((25 / secondaryIndexMs) * 1000) },
     { operation: "heap predicate scan", rows, ms: heapScanMs, rowsPerSecond: Math.round((rows / heapScanMs) * 1000) },
   ]);
 } finally {

@@ -12,6 +12,8 @@ try {
     runExec(args.slice(1));
   } else if (command === "shell") {
     await runShell(args.slice(1));
+  } else if (command === "recover") {
+    runRecover(args.slice(1));
   } else {
     printHelp();
     process.exitCode = command === "help" || command === "--help" || command === "-h" ? 0 : 1;
@@ -19,6 +21,16 @@ try {
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
+}
+
+function runRecover(args: string[]): void {
+  const sourceDir = readOption(args, "--from", "");
+  const targetDir = readOption(args, "--to", "");
+  if (!sourceDir) throw new Error("Missing --from");
+  if (!targetDir) throw new Error("Missing --to");
+
+  const report = YuriDatabase.recoverFromWal(sourceDir, targetDir);
+  console.table([report]);
 }
 
 function runExec(args: string[]): void {
@@ -92,6 +104,9 @@ function printResult(result: QueryResult): void {
   if (result.rows.length > 0) {
     console.table(result.rows);
   }
+  if (result.plan) {
+    console.log(`plan: ${result.plan.strategy} (${result.plan.reason})`);
+  }
   console.log(`${result.message} (${result.elapsedMs} ms)`);
 }
 
@@ -101,6 +116,7 @@ function printHelp(): void {
 Usage:
   ydb exec --dir .ydb --sql "create table users (id int primary key, name text);"
   ydb shell --dir .ydb
+  ydb recover --from .ydb --to .ydb-recovered
 
 Shell commands:
   .tables   list catalog tables

@@ -27,12 +27,20 @@ create table users (
 insert into users (id, name, age) values (1, 'Yuri', 23);
 ```
 
+## Indexes
+
+```sql
+create index idx_users_age on users (age);
+create unique index idx_users_email on users (email);
+```
+
 ## Select
 
 ```sql
 select * from users;
 select id, name from users where id = 1;
 select * from users where age >= 18;
+select id, age from users where age >= 18 order by age desc limit 10;
 ```
 
 Supported predicate operators:
@@ -42,6 +50,7 @@ Supported predicate operators:
 ```
 
 Primary-key equality predicates use the B+Tree index. Other predicates use heap scan.
+Secondary indexes can be used for equality and range predicates.
 
 ## Update
 
@@ -69,7 +78,5 @@ Writes are queued during a transaction. `commit` applies queued writes. `rollbac
 
 - Joins
 - Aggregation
-- Ordering
-- Secondary indexes
 - Foreign keys
 - Multi-statement isolation

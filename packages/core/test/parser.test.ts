@@ -32,4 +32,22 @@ describe("parseSql", () => {
       where: { column: "id", op: "=", value: 42 },
     });
   });
+
+  it("parses create index statements", () => {
+    expect(parseSql("create unique index idx_users_email on users (email)")).toEqual({
+      kind: "create_index",
+      index: { name: "idx_users_email", table: "users", column: "email", unique: true },
+    });
+  });
+
+  it("parses order by and limit clauses", () => {
+    expect(parseSql("select id from users where age >= 18 order by age desc limit 3")).toEqual({
+      kind: "select",
+      table: "users",
+      columns: ["id"],
+      where: { column: "age", op: ">=", value: 18 },
+      orderBy: { column: "age", direction: "desc" },
+      limit: 3,
+    });
+  });
 });

@@ -13,6 +13,11 @@ The benchmark set for this project is architectural, not vanity-based. Linux, Ch
 - File-backed heap storage built on 4KB slotted pages.
 - JSONL write-ahead log for table and row mutations.
 - In-memory B+Tree primary-key index rebuilt from heap files at startup.
+- Secondary indexes with `CREATE INDEX` and `CREATE UNIQUE INDEX`.
+- Query planner that explains primary-key lookup, secondary-index lookup, index-ordered scan, or heap scan.
+- `ORDER BY` and `LIMIT` for `SELECT`.
+- Persisted index snapshots under the database directory.
+- WAL-based recovery into a fresh database directory.
 - Transaction queue with commit and rollback for write statements.
 - CLI with one-shot SQL execution and interactive shell.
 - Benchmark runner for inserts, primary-key point reads, and heap scans.
@@ -27,6 +32,8 @@ npm run build
 node apps/cli/dist/index.js exec --dir .ydb --sql "create table users (id int primary key, name text not null, age int);"
 node apps/cli/dist/index.js exec --dir .ydb --sql "insert into users (id, name, age) values (1, 'Yuri', 23);"
 node apps/cli/dist/index.js exec --dir .ydb --sql "select * from users where id = 1;"
+node apps/cli/dist/index.js exec --dir .ydb --sql "create index idx_users_age on users (age);"
+node apps/cli/dist/index.js exec --dir .ydb --sql "select id, age from users where age = 23 order by id desc limit 1;"
 ```
 
 Run the interactive shell:
@@ -47,12 +54,20 @@ Run a benchmark:
 npm run bench -- --rows 1000
 ```
 
+Recover a database from its WAL into a new directory:
+
+```bash
+node apps/cli/dist/index.js recover --from .ydb --to .ydb-recovered
+```
+
 ## Example output
 
 ```text
-created table users (3.646 ms)
-inserted 1 row into users (2.806 ms)
-selected 1 rows via primary-key index (0.789 ms)
+created table users (4.067 ms)
+inserted 1 row into users (3.672 ms)
+created index idx_users_age on users(age) (2.323 ms)
+plan: secondary-index (Predicate column age has a secondary index.)
+selected 1 rows via secondary-index (1.773 ms)
 ```
 
 ## Architecture
@@ -75,6 +90,7 @@ packages/core/src
   btree/       B+Tree implementation
   catalog/     table metadata and schema validation
   database/    SQL execution, transactions, indexes
+  planner/     query planning decisions
   sql/         parser and predicate evaluation
   storage/     page file, slotted page, heap file
   wal/         write-ahead log
@@ -89,8 +105,9 @@ The dialect is deliberately small and testable:
 
 ```sql
 create table users (id int primary key, name text not null, age int);
+create index idx_users_age on users (age);
 insert into users (id, name, age) values (1, 'Yuri', 23);
-select id, name from users where id = 1;
+select id, name from users where age >= 18 order by age desc limit 10;
 update users set name = 'Barbosa' where id = 1;
 delete from users where id = 1;
 begin;
@@ -110,10 +127,10 @@ See [docs/SQL_DIALECT.md](docs/SQL_DIALECT.md) for details.
 
 ## Current limits
 
-- The WAL is append-only and transparent, but crash recovery is planned rather than complete.
-- The B+Tree index is rebuilt at startup instead of persisted as its own page file.
+- WAL recovery can rebuild into a fresh directory, but it is not yet automatic crash recovery on open.
+- B+Tree snapshots are persisted, but the B+Tree is not yet stored as a true page-oriented index file.
 - Transactions queue writes and apply them at commit; they are not MVCC or fully isolated.
-- SQL support is intentionally minimal and does not include joins, aggregation, or query planning yet.
+- SQL support is intentionally minimal and does not include joins, aggregation, foreign keys, or MVCC yet.
 
 ## Roadmap
 

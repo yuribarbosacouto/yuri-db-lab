@@ -1,12 +1,13 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
-import type { Row, RowId, TableSchema } from "../types.js";
+import type { IndexSchema, Row, RowId, TableSchema } from "../types.js";
 
 export type WalRecord =
   | { txId: number; type: "begin"; at: string }
   | { txId: number; type: "commit"; at: string }
   | { txId: number; type: "rollback"; at: string }
   | { txId: number; type: "create_table"; at: string; schema: TableSchema }
+  | { txId: number; type: "create_index"; at: string; index: IndexSchema }
   | { txId: number; type: "insert"; at: string; table: string; row: Row }
   | { txId: number; type: "insert_applied"; at: string; table: string; rowId: RowId }
   | { txId: number; type: "update"; at: string; table: string; before: Row; after: Row }

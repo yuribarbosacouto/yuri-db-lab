@@ -114,7 +114,8 @@
         <h1>Yuri DB Lab</h1>
         <p>
           A from-scratch database systems lab with SQL parsing, slotted pages, heap storage, WAL,
-          primary-key indexing, CLI workflows, benchmarks, tests, and open-source project hygiene.
+          primary and secondary indexes, query plans, recovery, CLI workflows, benchmarks, tests,
+          and open-source project hygiene.
         </p>
         <div class="commands" aria-label="Quickstart commands">
           <code>npm install && npm run build</code>
@@ -131,7 +132,8 @@
             <li>4KB slotted pages</li>
             <li>File-backed heap storage</li>
             <li>JSONL write-ahead log</li>
-            <li>B+Tree primary-key index</li>
+            <li>B+Tree indexes</li>
+            <li>WAL recovery</li>
           </ul>
         </section>
         <section>
@@ -141,6 +143,7 @@
             <li>Vitest suite</li>
             <li>GitHub Actions CI</li>
             <li>CodeQL and Dependabot</li>
+            <li>Query plan visibility</li>
           </ul>
         </section>
         <section>
