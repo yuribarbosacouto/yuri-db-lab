@@ -1,6 +1,6 @@
 {
   "name": "@ydb/workbench",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "type": "module",
   "private": true,
   "scripts": {
@@ -9,6 +9,6 @@
     "start": "node dist/server.js"
   },
   "dependencies": {
-    "@ydb/core": "0.7.0"
+    "@ydb/core": "0.8.0"
   }
 }

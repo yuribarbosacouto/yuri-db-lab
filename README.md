@@ -32,7 +32,7 @@ This project is a technical lab, not a production database. The implemented feat
 - Transaction queue with commit and rollback for write statements.
 - CLI with one-shot SQL execution and interactive shell.
 - Benchmark runner for inserts, primary-key point reads, secondary-index reads, and heap scans.
-- Local Workbench UI for running SQL and inspecting heap pages, WAL records, storage files, and B+Tree index pages.
+- Local Workbench UI for running guided demos, SQL, and inspecting heap pages, WAL records, storage files, and B+Tree index pages.
 - Vitest coverage for parser, B+Tree behavior, persistence, transactions, and mutation paths.
 - GitHub Actions CI, CodeQL, Dependabot, and GitHub Pages documentation.
 
@@ -82,7 +82,7 @@ Open the local storage workbench:
 npm run workbench
 ```
 
-Then visit `http://127.0.0.1:4177`, seed the demo database, run SQL, and inspect the generated files, WAL timeline, heap pages, query plans, and B+Tree pages.
+Then visit `http://127.0.0.1:4177` and run the guided demo. It compares heap scan vs secondary index lookup, traces a B+Tree page path, simulates crash recovery, and shows the generated files, WAL timeline, heap pages, query plans, and B+Tree pages.
 
 Run a benchmark:
 
@@ -156,6 +156,7 @@ Key architecture decisions:
 - [ADR 004: Page-backed B+Tree index snapshots](docs/ADR-004-page-backed-index-snapshots.md)
 - [ADR 005: Mutable page-backed index inserts](docs/ADR-005-mutable-index-inserts.md)
 - [ADR 006: Local storage workbench](docs/ADR-006-local-storage-workbench.md)
+- [ADR 007: Guided system demo](docs/ADR-007-guided-system-demo.md)
 
 ## SQL dialect
 
@@ -185,7 +186,7 @@ See [docs/SQL_DIALECT.md](docs/SQL_DIALECT.md) for details.
 
 ## Roadmap
 
-The next milestones are direct on-disk index search, B+Tree delete/rebalance, fsync strategy, property-based tests, demo walkthroughs, and benchmark history. See [docs/ROADMAP.md](docs/ROADMAP.md).
+The next milestones are direct on-disk index search, B+Tree delete/rebalance, fsync strategy, property-based tests, and benchmark history. See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## References that shaped the scope
 

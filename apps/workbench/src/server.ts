@@ -2,8 +2,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { basename, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { IndexStore, PageFile, WriteAheadLog, YuriDatabase } from "@ydb/core";
-import type { QueryResult, Row, TableSchema } from "@ydb/core";
+import { HeapFile, IndexStore, PageFile, WriteAheadLog, YuriDatabase } from "@ydb/core";
+import type { QueryResult, Row, Scalar, TableSchema } from "@ydb/core";
 
 type WorkbenchSnapshot = {
   dataDir: string;
@@ -18,6 +18,25 @@ type WorkbenchSnapshot = {
     info: ReturnType<IndexStore["inspect"]>;
     pages: Array<{ pageId: number; kind?: string; keys?: unknown[]; children?: number[]; entries?: unknown[]; nextPageId?: number | null; error?: string }>;
   }>;
+};
+
+type DemoEvidence = {
+  label: string;
+  value: string;
+  detail: string;
+};
+
+type TraceStep = {
+  pageId: number;
+  kind: string;
+  keys: unknown[];
+  decision: string;
+};
+
+type RecoveryDemo = {
+  report: ReturnType<YuriDatabase["startupRecovery"]>;
+  beforeRows: Row[];
+  afterRows: Row[];
 };
 
 const publicDir = resolve(fileURLToPath(new URL("../public", import.meta.url)));
@@ -47,6 +66,7 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
   if (readMethod && url.pathname === "/client.js") return sendFile(request, response, clientPath, "text/javascript; charset=utf-8");
   if (readMethod && url.pathname === "/api/snapshot") return sendJson(request, response, 200, snapshot());
   if (method === "POST" && url.pathname === "/api/execute") return executeSql(request, response);
+  if (method === "POST" && url.pathname === "/api/demo/guided") return guidedDemo(response);
   if (method === "POST" && url.pathname === "/api/seed") return seedDemo(response);
   if (method === "POST" && url.pathname === "/api/reset") return resetDatabase(response);
 
@@ -79,6 +99,39 @@ function seedDemo(response: ServerResponse): void {
   sendJson(undefined, response, 200, { results, snapshot: snapshot() });
 }
 
+function guidedDemo(response: ServerResponse): void {
+  resetDataDir();
+  db = openDatabase();
+
+  const results: QueryResult[] = [];
+  results.push(db.execute("create table users (id int primary key, name text not null, age int)"));
+  for (const statement of demoUserInserts(180)) results.push(db.execute(statement));
+
+  const heapScan = db.execute("select id, name, age from users where age = 24 order by id limit 8");
+  results.push(heapScan);
+  results.push(db.execute("create index idx_users_age on users (age)"));
+  const indexedLookup = db.execute("select id, name, age from users where age = 24 order by id limit 8");
+  results.push(indexedLookup);
+  const orderedScan = db.execute("select id, age from users order by age limit 8");
+  results.push(orderedScan);
+  results.push(db.execute("insert into users (id, name, age) values (999, 'Workbench', 24)"));
+  const postInsertLookup = db.execute("select id, name, age from users where age = 24 order by id desc limit 5");
+  results.push(postInsertLookup);
+
+  const currentSnapshot = snapshot();
+  const recovery = runRecoveryDemo();
+  const evidence = guidedEvidence(heapScan, indexedLookup, orderedScan, postInsertLookup, currentSnapshot, recovery);
+  const trace = traceIndexPath(currentSnapshot, "users", "age", 24);
+
+  sendJson(undefined, response, 200, {
+    results: [heapScan, indexedLookup, orderedScan, postInsertLookup],
+    snapshot: currentSnapshot,
+    evidence,
+    trace,
+    recovery,
+  });
+}
+
 function resetDatabase(response: ServerResponse): void {
   resetDataDir();
   db = openDatabase();
@@ -103,6 +156,138 @@ function executeStatements(sql: string): QueryResult[] {
     results.push(db.execute(statement));
   }
   return results;
+}
+
+function demoUserInserts(count: number): string[] {
+  return Array.from({ length: count }, (_, index) => {
+    const id = index + 1;
+    const age = 20 + (id % 18);
+    return `insert into users (id, name, age) values (${id}, 'user-${id}', ${age})`;
+  });
+}
+
+function guidedEvidence(
+  heapScan: QueryResult,
+  indexedLookup: QueryResult,
+  orderedScan: QueryResult,
+  postInsertLookup: QueryResult,
+  currentSnapshot: WorkbenchSnapshot,
+  recovery: RecoveryDemo,
+): DemoEvidence[] {
+  const ageIndex = currentSnapshot.indexPages.find((index) => index.table === "users" && index.column === "age");
+  const heapRows = currentSnapshot.heapPages.reduce((total, page) => total + page.rows, 0);
+  const walRecordCount = currentSnapshot.wal.length;
+
+  return [
+    {
+      label: "query planner",
+      value: `${heapScan.plan?.strategy ?? "-"} -> ${indexedLookup.plan?.strategy ?? "-"}`,
+      detail: `Same predicate, same rows, different physical path. Estimated cost changed from ${heapScan.plan?.estimatedCost ?? "-"} to ${indexedLookup.plan?.estimatedCost ?? "-"}.`,
+    },
+    {
+      label: "ordered scan",
+      value: orderedScan.plan?.strategy ?? "-",
+      detail: `ORDER BY age can use the secondary index after idx_users_age exists.`,
+    },
+    {
+      label: "mutable index",
+      value: `${postInsertLookup.rows[0]?.id ?? "-"} returned after insert`,
+      detail: `The row inserted after index creation is visible through the secondary index without rebuilding the whole database.`,
+    },
+    {
+      label: "storage files",
+      value: `${heapRows} heap rows, ${ageIndex?.info.pageCount ?? 0} age-index pages`,
+      detail: `The demo produced heap pages, checksum manifests, WAL records, and page-backed B+Tree files on disk.`,
+    },
+    {
+      label: "wal volume",
+      value: `${walRecordCount} records`,
+      detail: `Every schema and row mutation left an append-only recovery trail in wal.jsonl.`,
+    },
+    {
+      label: "crash recovery",
+      value: `${recovery.beforeRows.length} dirty rows -> ${recovery.afterRows.length} recovered rows`,
+      detail: `Startup recovery discarded ${String(recovery.report?.incompleteTransactionsDiscarded ?? 0)} incomplete transaction and undid ${String(recovery.report?.recordsUndone ?? 0)} heap record.`,
+    },
+  ];
+}
+
+function runRecoveryDemo(): RecoveryDemo {
+  const recoveryDir = `${dataDir}-crash-demo`;
+  resetWorkDir(recoveryDir);
+
+  let crashDb = new YuriDatabase(recoveryDir);
+  crashDb.execute("create table users (id int primary key, name text not null)");
+  crashDb.execute("insert into users (id, name) values (1, 'Committed')");
+
+  const uncommitted: Row = { id: 2, name: "Uncommitted" };
+  const wal = new WriteAheadLog(join(recoveryDir, "wal.jsonl"));
+  wal.append({ txId: 8001, type: "begin" });
+  wal.append({ txId: 8001, type: "insert", table: "users", row: uncommitted });
+  new HeapFile(join(recoveryDir, "tables", "users.heap")).insert(uncommitted);
+
+  crashDb = new YuriDatabase(recoveryDir, { recoverOnOpen: false });
+  const beforeRows = crashDb.execute("select * from users order by id").rows;
+  const recovered = new YuriDatabase(recoveryDir);
+  const report = recovered.startupRecovery();
+  const afterRows = recovered.execute("select * from users order by id").rows;
+
+  return { report, beforeRows, afterRows };
+}
+
+function traceIndexPath(snapshot: WorkbenchSnapshot, table: string, column: string, key: Scalar): TraceStep[] {
+  const index = snapshot.indexPages.find((candidate) => candidate.table === table && candidate.column === column);
+  if (!index || index.info.rootPageId === undefined) return [];
+
+  const pages = new Map(index.pages.map((page) => [page.pageId, page]));
+  const trace: TraceStep[] = [];
+  let pageId: number | undefined = index.info.rootPageId;
+  const visited = new Set<number>();
+
+  while (pageId !== undefined && !visited.has(pageId)) {
+    visited.add(pageId);
+    const page = pages.get(pageId);
+    if (!page) break;
+
+    const keys = page.keys ?? entriesToKeys(page.entries);
+    if (page.kind !== "internal") {
+      trace.push({ pageId, kind: page.kind ?? "unknown", keys, decision: `contains key ${String(key)} candidates` });
+      break;
+    }
+
+    const childIndex = findChildIndex(keys, key);
+    const nextPageId = page.children?.[childIndex];
+    const decision = nextPageId === undefined ? "has no child for this key" : `key ${String(key)} follows child ${nextPageId}`;
+    trace.push({ pageId, kind: page.kind, keys, decision });
+    pageId = nextPageId;
+  }
+
+  return trace;
+}
+
+function entriesToKeys(entries: unknown[] | undefined): unknown[] {
+  if (!entries) return [];
+  return entries.map((entry) => (isRecord(entry) ? entry.key : undefined)).filter((value) => value !== undefined);
+}
+
+function findChildIndex(keys: unknown[], key: Scalar): number {
+  let index = 0;
+  while (index < keys.length && compareScalarLike(key, keys[index]) >= 0) index += 1;
+  return index;
+}
+
+function compareScalarLike(left: Scalar, right: unknown): number {
+  if (right === null || typeof right === "string" || typeof right === "number") {
+    if (left === right) return 0;
+    if (left === null) return -1;
+    if (right === null) return 1;
+    return left < right ? -1 : 1;
+  }
+  return -1;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 function heapPages(tables: TableSchema[]): WorkbenchSnapshot["heapPages"] {
@@ -193,11 +378,15 @@ function readdirSyncSafe(path: string): string[] {
 }
 
 function resetDataDir(): void {
-  if (!basename(dataDir).includes("workbench")) {
-    throw new Error(`Refusing to reset non-workbench directory: ${dataDir}`);
+  resetWorkDir(dataDir);
+}
+
+function resetWorkDir(targetDir: string): void {
+  if (!basename(targetDir).includes("workbench")) {
+    throw new Error(`Refusing to reset non-workbench directory: ${targetDir}`);
   }
-  rmSync(dataDir, { recursive: true, force: true });
-  mkdirSync(dataDir, { recursive: true });
+  rmSync(targetDir, { recursive: true, force: true });
+  mkdirSync(targetDir, { recursive: true });
 }
 
 function openDatabase(): YuriDatabase {

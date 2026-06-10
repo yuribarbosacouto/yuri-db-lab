@@ -21,6 +21,7 @@
 
       <section class="editor-band" aria-label="SQL workbench">
         <div class="editor-tools">
+          <button id="guided-btn" type="button">Guided Demo</button>
           <button id="seed-btn" type="button">Seed Demo</button>
           <button id="run-btn" type="button">Run SQL</button>
           <button id="reset-btn" type="button" class="danger">Reset DB</button>
@@ -29,6 +30,14 @@
       </section>
 
       <section class="workspace-grid" aria-label="Database internals">
+        <section class="panel demo-panel">
+          <div class="panel-heading">
+            <p class="eyebrow">Evidence</p>
+            <h2>Guided Demo</h2>
+          </div>
+          <div id="demo" class="demo-list"></div>
+        </section>
+
         <section class="panel results-panel">
           <div class="panel-heading">
             <p class="eyebrow">Query</p>

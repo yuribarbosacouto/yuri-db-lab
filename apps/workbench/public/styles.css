@@ -49,6 +49,11 @@ button.danger {
   background: var(--accent-2);
 }
 
+#guided-btn {
+  border-color: #184f7d;
+  background: #184f7d;
+}
+
 .shell {
   width: min(1440px, calc(100% - 28px));
   margin: 0 auto;
@@ -142,6 +147,10 @@ button.danger {
   grid-column: span 2;
 }
 
+.demo-panel {
+  grid-column: 1 / -1;
+}
+
 .results-panel {
   min-height: 418px;
 }
@@ -207,6 +216,8 @@ th {
 }
 
 .plan-card,
+.demo-card,
+.trace-card,
 .file-row,
 .wal-row,
 .index-card,
@@ -218,6 +229,7 @@ th {
 }
 
 .plan-list,
+.demo-list,
 .file-list,
 .timeline,
 .index-pages,
@@ -237,6 +249,44 @@ th {
   color: #21484a;
   font-size: 0.75rem;
   font-weight: 800;
+}
+
+.demo-card {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.28fr) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.demo-card strong {
+  display: block;
+  font-size: 0.92rem;
+}
+
+.demo-value {
+  color: var(--ink);
+  font-size: 0.92rem;
+  font-weight: 800;
+}
+
+.demo-detail {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+
+.trace-card {
+  border-left: 5px solid #184f7d;
+}
+
+.trace-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 0.82rem;
 }
 
 .meta-line,
@@ -308,6 +358,10 @@ pre {
     display: grid;
     grid-template-columns: 1fr;
     grid-column: auto;
+  }
+
+  .demo-card {
+    grid-template-columns: 1fr;
   }
 
   .shell {

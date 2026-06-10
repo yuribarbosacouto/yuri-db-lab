@@ -41,6 +41,7 @@ select * from users;
 select id, name from users where id = 1;
 select * from users where age >= 18;
 select id, age from users where age >= 18 order by age desc limit 10;
+select id, age from users order by age limit 10;
 ```
 
 Supported predicate operators:

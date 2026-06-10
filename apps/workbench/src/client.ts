@@ -34,12 +34,37 @@ type ExecuteResponse = {
   snapshot: WorkbenchSnapshot;
 };
 
+type DemoEvidence = {
+  label: string;
+  value: string;
+  detail: string;
+};
+
+type TraceStep = {
+  pageId: number;
+  kind: string;
+  keys: unknown[];
+  decision: string;
+};
+
+type GuidedDemoResponse = ExecuteResponse & {
+  evidence: DemoEvidence[];
+  trace: TraceStep[];
+  recovery: {
+    report: Record<string, unknown> | null;
+    beforeRows: Record<string, unknown>[];
+    afterRows: Record<string, unknown>[];
+  };
+};
+
 const sqlInput = document.querySelector<HTMLTextAreaElement>("#sql-input")!;
+const guidedBtn = document.querySelector<HTMLButtonElement>("#guided-btn")!;
 const runBtn = document.querySelector<HTMLButtonElement>("#run-btn")!;
 const seedBtn = document.querySelector<HTMLButtonElement>("#seed-btn")!;
 const resetBtn = document.querySelector<HTMLButtonElement>("#reset-btn")!;
 const dbDir = document.querySelector<HTMLElement>("#db-dir")!;
 const dbStatus = document.querySelector<HTMLElement>("#db-status")!;
+const demoEl = document.querySelector<HTMLElement>("#demo")!;
 const resultsEl = document.querySelector<HTMLElement>("#results")!;
 const plansEl = document.querySelector<HTMLElement>("#plans")!;
 const filesEl = document.querySelector<HTMLElement>("#files")!;
@@ -53,6 +78,7 @@ sqlInput.value = [
   "select id, name, age from users where age = 24 order by id desc limit 5;",
 ].join("\n");
 
+guidedBtn.addEventListener("click", () => runGuidedDemo());
 runBtn.addEventListener("click", () => runSql());
 seedBtn.addEventListener("click", () => seedDemo());
 resetBtn.addEventListener("click", () => resetDb());
@@ -65,9 +91,28 @@ async function refresh(): Promise<void> {
     const snapshot = await requestJson<WorkbenchSnapshot>("/api/snapshot");
     renderSnapshot(snapshot);
     renderResults([]);
+    renderDemo();
     setBusy("ready");
   } catch (error) {
     renderError(resultsEl, error);
+    setBusy("error");
+  }
+}
+
+async function runGuidedDemo(): Promise<void> {
+  setBusy("demo");
+  try {
+    const response = await requestJson<GuidedDemoResponse>("/api/demo/guided", { method: "POST" });
+    renderResults(response.results);
+    renderSnapshot(response.snapshot);
+    renderDemo(response.evidence, response.trace, response.recovery);
+    sqlInput.value = [
+      "select id, name, age from users where age = 24 order by id limit 8;",
+      "select id, name, age from users where age = 24 order by id desc limit 5;",
+    ].join("\n");
+    setBusy("ready");
+  } catch (error) {
+    renderError(demoEl, error);
     setBusy("error");
   }
 }
@@ -95,6 +140,7 @@ async function seedDemo(): Promise<void> {
     const response = await requestJson<ExecuteResponse>("/api/seed", { method: "POST" });
     renderResults(response.results);
     renderSnapshot(response.snapshot);
+    renderDemo();
     setBusy("ready");
   } catch (error) {
     renderError(resultsEl, error);
@@ -108,6 +154,7 @@ async function resetDb(): Promise<void> {
     const snapshot = await requestJson<WorkbenchSnapshot>("/api/reset", { method: "POST" });
     renderResults([]);
     renderSnapshot(snapshot);
+    renderDemo();
     setBusy("ready");
   } catch (error) {
     renderError(resultsEl, error);
@@ -136,6 +183,64 @@ function renderSnapshot(snapshot: WorkbenchSnapshot): void {
   if (snapshot.wal.length === 0) walEl.append(empty("No WAL records yet."));
   if (snapshot.indexPages.length === 0) indexesEl.append(empty("No index pages yet."));
   if (snapshot.heapPages.length === 0) heapEl.append(empty("No heap pages yet."));
+}
+
+function renderDemo(evidence: DemoEvidence[] = [], trace: TraceStep[] = [], recovery?: GuidedDemoResponse["recovery"]): void {
+  demoEl.replaceChildren();
+
+  if (evidence.length === 0) {
+    demoEl.append(empty("No guided evidence yet."));
+    return;
+  }
+
+  for (const item of evidence) {
+    const node = document.createElement("article");
+    node.className = "demo-card";
+
+    const label = document.createElement("div");
+    label.append(badge(item.label));
+
+    const body = document.createElement("div");
+    const value = document.createElement("strong");
+    value.className = "demo-value";
+    value.textContent = item.value;
+    const detail = document.createElement("p");
+    detail.className = "demo-detail";
+    detail.textContent = item.detail;
+    body.append(value, detail);
+    node.append(label, body);
+    demoEl.append(node);
+  }
+
+  if (trace.length > 0) {
+    const traceCard = document.createElement("article");
+    traceCard.className = "trace-card";
+    traceCard.append(badge("btree trace"));
+    for (const step of trace) {
+      const line = document.createElement("div");
+      line.className = "trace-line";
+      line.append(badge(`page ${step.pageId}`), document.createTextNode(`${step.kind} ${step.decision}`));
+      if (step.keys.length > 0) line.append(document.createTextNode(`keys ${step.keys.map(formatValue).join(", ")}`));
+      traceCard.append(line);
+    }
+    demoEl.append(traceCard);
+  }
+
+  if (recovery) {
+    const recoveryCard = document.createElement("article");
+    recoveryCard.className = "trace-card";
+    recoveryCard.append(badge("recovery report"));
+    recoveryCard.append(
+      metaLine([
+        `before ${recovery.beforeRows.length} rows`,
+        `after ${recovery.afterRows.length} rows`,
+        `undone ${String(recovery.report?.recordsUndone ?? 0)}`,
+        `discarded ${String(recovery.report?.incompleteTransactionsDiscarded ?? 0)}`,
+      ]),
+      jsonBlock(recovery.report),
+    );
+    demoEl.append(recoveryCard);
+  }
 }
 
 function renderResults(results: QueryResult[]): void {

@@ -2,6 +2,20 @@
 
 All notable changes to Yuri DB Lab are documented here.
 
+## [0.8.0] - 2026-06-09
+
+### Added
+
+- Guided Workbench demo that proves the engine through observable state rather than a static UI.
+- Index comparison flow showing the same predicate move from `heap-scan` to `secondary-index` after `CREATE INDEX`.
+- B+Tree trace for the `users.age` index, including page path decisions for a lookup key.
+- Crash recovery scenario that writes an incomplete transaction to WAL and heap storage, reopens the database, and displays the undo report.
+- Evidence panel summarizing planner, ordered scan, mutable index, WAL volume, storage files, and recovery outcomes.
+
+### Changed
+
+- Workbench now leads with a technical proof flow instead of only exposing raw storage panels.
+
 ## [0.7.0] - 2026-06-09
 
 ### Added

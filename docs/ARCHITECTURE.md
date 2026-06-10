@@ -34,7 +34,7 @@ flowchart TD
 7. B+Tree indexes resolve row ids when a query can use an index.
 8. On startup, committed WAL records are replayed and incomplete transaction batches are undone.
 9. Results are ordered, limited, and projected into `QueryResult`.
-10. The Workbench renders query results, planner decisions, heap pages, WAL records, and persisted B+Tree pages for local inspection.
+10. The Workbench renders query results, planner decisions, heap pages, WAL records, persisted B+Tree pages, and guided evidence for local inspection.
 
 ## Persistence model
 
@@ -49,7 +49,7 @@ indexes/*.idx      page-backed B+Tree index snapshots
 indexes/*.idx.checksums.json index page checksum manifests
 ```
 
-The Workbench runs against its own `.workbench-db` directory by default so demo exploration does not touch a user's CLI database unless a custom `--dir` is passed.
+The Workbench runs against its own `.workbench-db` directory by default so demo exploration does not touch a user's CLI database unless a custom `--dir` is passed. Its guided demo also uses a separate crash-recovery scratch directory to demonstrate WAL undo without replacing the main demo database.
 
 The heap file is durable and each written page has a checksum entry. Indexes are persisted as page-backed B+Tree files with a meta page, leaf pages, and internal pages. Inserts mutate those index pages with leaf/internal splits and root replacement. Updates and deletes still rebuild affected indexes. Startup recovery replays committed logical WAL records, validates transaction commit markers when present, and undoes incomplete transaction batches. The explicit CLI recovery command can still rebuild a fresh database directory from logged operations.
 

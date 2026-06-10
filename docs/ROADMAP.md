@@ -54,4 +54,11 @@ This roadmap is based on the portfolio audit priorities: automation first, then 
 - [x] Architecture decision records for major changes
 - [ ] More issue labels and contribution guide examples
 - [x] Demo dataset
-- [ ] Guided demo walkthrough
+- [x] Guided demo walkthrough
+
+## Phase 6: deeper inspection
+
+- [ ] Direct on-disk index search
+- [ ] Visual page-path comparison for multiple predicates
+- [ ] Benchmark history with saved runs
+- [ ] Recovery scenarios for invalid commit markers and committed transaction replay

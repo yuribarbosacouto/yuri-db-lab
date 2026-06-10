@@ -99,7 +99,7 @@ function parseSelectSuffix(input: string): Pick<Extract<Statement, { kind: "sele
     rest = rest.slice(0, limit.index).trim();
   }
 
-  const orderBy = rest.match(/\s+order\s+by\s+([a-zA-Z_][\w]*)(?:\s+(asc|desc))?\s*$/i);
+  const orderBy = rest.match(/(?:^|\s+)order\s+by\s+([a-zA-Z_][\w]*)(?:\s+(asc|desc))?\s*$/i);
   if (orderBy) {
     output.orderBy = {
       column: orderBy[1]!,

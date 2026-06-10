@@ -50,4 +50,14 @@ describe("parseSql", () => {
       limit: 3,
     });
   });
+
+  it("parses order by and limit without a where clause", () => {
+    expect(parseSql("select id, age from users order by age limit 8")).toEqual({
+      kind: "select",
+      table: "users",
+      columns: ["id", "age"],
+      orderBy: { column: "age", direction: "asc" },
+      limit: 8,
+    });
+  });
 });

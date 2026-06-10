@@ -2,7 +2,7 @@ node_modules
 dist
 coverage
 .ydb
-.workbench-db
+.workbench-db*
 .tmp
 *.log
 .env
