@@ -2,6 +2,20 @@
 
 All notable changes to Yuri DB Lab are documented here.
 
+## [0.9.0] - 2026-06-09
+
+### Added
+
+- Direct page-backed index reads in `IndexStore.search`, `IndexStore.range`, and `IndexStore.entries`.
+- Indexed `SELECT` execution now reads `indexes/*.idx` pages directly for primary-key lookup, secondary-index lookup, range lookup, and index-ordered scans.
+- Tests proving indexed queries still work when `IndexStore.load()` is disabled.
+- Recovery undo fallback that scans heap rows when a crash wrote a dirty heap record before the index saw it.
+- ADR 008 documenting direct index page reads and the remaining delete/rebalance work.
+
+### Changed
+
+- Opening a database no longer loads every existing page-backed index into an in-memory B+Tree just to make indexed queries possible.
+
 ## [0.8.0] - 2026-06-09
 
 ### Added

@@ -32,6 +32,9 @@ describe("IndexStore", () => {
 
       expect(loaded?.search(25)).toEqual(tree.search(25));
       expect(loaded?.range(30, 32)).toEqual(tree.range(30, 32));
+      expect(store.search("users", "age", 25)).toEqual(tree.search(25));
+      expect(store.range("users", "age", 30, 32)).toEqual(tree.range(30, 32));
+      expect(store.entries("users", "age").map((entry) => entry.key)).toEqual(tree.entries().map((entry) => entry.key));
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -86,6 +89,13 @@ describe("IndexStore", () => {
       expect(info.format).toBe("paged-btree");
       expect(info.rootPageId).not.toBe(info.firstLeafPageId);
       expect(info.pageCount).toBeGreaterThan(2);
+      expect(store.search("users", "id", 1)).toEqual([{ pageId: 0, slotId: 1 }]);
+      expect(store.search("users", "id", 180)).toEqual([{ pageId: 15, slotId: 0 }]);
+      expect(store.range("users", "id", 40, 42)).toEqual([
+        { pageId: 3, slotId: 4 },
+        { pageId: 3, slotId: 5 },
+        { pageId: 3, slotId: 6 },
+      ]);
       expect(loaded?.search(1)).toEqual([{ pageId: 0, slotId: 1 }]);
       expect(loaded?.search(180)).toEqual([{ pageId: 15, slotId: 0 }]);
       expect(loaded?.range(40, 42)).toEqual([

@@ -99,6 +99,41 @@ describe("YuriDatabase", () => {
     expect(indexStore.inspect("users", "age").pageCount).toBe(pageCountBeforeReopen);
   });
 
+  it("answers indexed queries from page-backed indexes without loading the full tree", () => {
+    const db = new YuriDatabase(dir);
+    db.execute("create table users (id int primary key, name text, age int)");
+    for (let id = 1; id <= 120; id += 1) {
+      db.execute(`insert into users (id, name, age) values (${id}, 'user-${id}', ${20 + (id % 12)})`);
+    }
+    db.execute("create index idx_users_age on users (age)");
+
+    const originalLoad = IndexStore.prototype.load;
+    IndexStore.prototype.load = function loadShouldNotRun() {
+      throw new Error("IndexStore.load should not be called for direct paged queries");
+    };
+
+    try {
+      const reopened = new YuriDatabase(dir);
+      const filtered = reopened.execute("select id, age from users where age = 24 order by id limit 3");
+      const ordered = reopened.execute("select id, age from users order by age limit 3");
+
+      expect(filtered.plan?.strategy).toBe("secondary-index");
+      expect(filtered.rows).toEqual([
+        { id: 4, age: 24 },
+        { id: 16, age: 24 },
+        { id: 28, age: 24 },
+      ]);
+      expect(ordered.plan?.strategy).toBe("index-ordered-scan");
+      expect(ordered.rows).toEqual([
+        { id: 12, age: 20 },
+        { id: 24, age: 20 },
+        { id: 36, age: 20 },
+      ]);
+    } finally {
+      IndexStore.prototype.load = originalLoad;
+    }
+  });
+
   it("rejects unique secondary indexes with duplicated keys", () => {
     const db = new YuriDatabase(dir);
     db.execute("create table users (id int primary key, email text)");

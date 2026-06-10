@@ -4,6 +4,7 @@ export { parseSql } from "./sql/parser.js";
 export { matches, compareScalars } from "./sql/evaluator.js";
 export { HeapFile } from "./storage/heap-file.js";
 export { IndexStore } from "./storage/index-store.js";
+export type { IndexStoreEntry } from "./storage/index-store.js";
 export { checksumPageBuffer, PageFile } from "./storage/page-file.js";
 export { PAGE_SIZE, SlottedPage } from "./storage/page.js";
 export { WriteAheadLog } from "./wal/wal.js";

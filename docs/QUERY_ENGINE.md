@@ -20,7 +20,7 @@ create index idx_users_age on users (age);
 create unique index idx_users_email on users (email);
 ```
 
-Index metadata is stored in `catalog.json`. Indexes are written as page-backed files under `indexes/*.idx`, with checksum manifests next to them. Inserts mutate the page-backed index with leaf/internal splits; updates and deletes still rebuild affected indexes. Older `indexes/*.idx.json` snapshots can still be loaded as a compatibility fallback.
+Index metadata is stored in `catalog.json`. Indexes are written as page-backed files under `indexes/*.idx`, with checksum manifests next to them. Inserts mutate the page-backed index with leaf/internal splits; indexed reads search those pages directly for point lookup, range lookup, and ordered scans. Updates and deletes still rebuild affected indexes. Older `indexes/*.idx.json` snapshots can still be loaded as a compatibility fallback.
 
 ## Predicate support
 
@@ -30,7 +30,7 @@ The planner can use indexed predicates for:
 = > >= < <=
 ```
 
-Strict range predicates are first fetched through an inclusive B+Tree range and then filtered with the predicate evaluator.
+Strict range predicates are first fetched through an inclusive page-backed range and then filtered with the predicate evaluator.
 
 ## Ordering and limit
 
@@ -63,4 +63,4 @@ The CLI can rebuild a fresh database directory from the write-ahead log:
 node apps/cli/dist/index.js recover --from .ydb --to .ydb-recovered
 ```
 
-Recovery replays committed transaction batches and ignores rolled-back writes. It resolves updates and deletes by primary key so recovered `RowId`s do not need to match the source database.
+Recovery replays committed transaction batches and ignores rolled-back writes. It resolves updates and deletes by primary key so recovered `RowId`s do not need to match the source database. During undo, if a crash wrote a dirty heap row before the corresponding index update reached disk, recovery falls back to a heap scan for that primary key.

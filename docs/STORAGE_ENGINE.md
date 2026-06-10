@@ -48,7 +48,7 @@ The row id is stable until the row is deleted. Updates are implemented as delete
 
 ## Indexing
 
-The primary-key and secondary B+Tree indexes map scalar keys to row ids. In memory, queries use `BPlusTree`. On disk, index snapshots are written as page-backed files:
+The primary-key and secondary B+Tree indexes map scalar keys to row ids. Index files are page-backed:
 
 ```text
 indexes/users.id.idx
@@ -57,7 +57,15 @@ indexes/users.age.idx
 indexes/users.age.idx.checksums.json
 ```
 
-The index file contains a meta page, linked leaf pages, and internal pages. Inserts mutate the file in place: leaf pages split, separator keys propagate through internal pages, and the root is replaced when it overflows. Loading an index still scans the leaf chain and rebuilds the in-memory B+Tree.
+The index file contains a meta page, linked leaf pages, and internal pages. Inserts mutate the file in place: leaf pages split, separator keys propagate through internal pages, and the root is replaced when it overflows.
+
+Indexed reads now search the page-backed file directly:
+
+- point lookups descend from root to leaf;
+- range lookups descend to the first matching leaf and then follow the linked leaf chain;
+- index-ordered scans stream row ids from leaf pages in key order.
+
+The older full-load path remains available for compatibility and diagnostics, but normal indexed `SELECT` execution no longer needs to rebuild the entire B+Tree in memory.
 
 ## Startup recovery
 
@@ -68,6 +76,5 @@ Opening a database triggers logical WAL recovery. The engine replays committed r
 - Deleted payload bytes are not compacted yet.
 - The heap file scans pages linearly for insert space.
 - B+Tree deletes and rebalancing are not implemented yet; update/delete paths rebuild affected indexes.
-- Queries still use the in-memory B+Tree after load rather than searching disk pages directly.
 - Checksums detect page corruption, but they do not repair damaged pages.
 - Recovery does not yet model fsync policy or atomic directory swaps.

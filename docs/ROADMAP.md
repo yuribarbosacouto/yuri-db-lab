@@ -41,8 +41,8 @@ This roadmap is based on the portfolio audit priorities: automation first, then 
 
 - [x] Persistent B+Tree page layout
 - [x] Incremental mutable B+Tree insert splits
+- [x] Direct on-disk index search
 - [ ] B+Tree delete/rebalance
-- [ ] Direct on-disk index search
 - [ ] Property-based tests for pages and parser
 - [ ] Concurrency model
 - [ ] Snapshot read experiments
@@ -58,7 +58,6 @@ This roadmap is based on the portfolio audit priorities: automation first, then 
 
 ## Phase 6: deeper inspection
 
-- [ ] Direct on-disk index search
 - [ ] Visual page-path comparison for multiple predicates
 - [ ] Benchmark history with saved runs
 - [ ] Recovery scenarios for invalid commit markers and committed transaction replay

@@ -6,13 +6,13 @@ import type { RowId, Scalar } from "../types.js";
 import { PageFile } from "./page-file.js";
 import { SlottedPage } from "./page.js";
 
-type IndexEntry = { key: Scalar; rowIds: RowId[] };
+export type IndexStoreEntry = { key: Scalar; rowIds: RowId[] };
 
 type IndexSnapshot = {
   version: 1;
   table: string;
   column: string;
-  entries: IndexEntry[];
+  entries: IndexStoreEntry[];
 };
 
 type IndexPage =
@@ -31,7 +31,7 @@ type IndexPage =
       table: string;
       column: string;
       nextPageId: number | null;
-      entries: IndexEntry[];
+      entries: IndexStoreEntry[];
     }
   | {
       version: 2;
@@ -161,6 +161,75 @@ export class IndexStore {
     return { format: "empty", pageCount: 0 };
   }
 
+  search(table: string, column: string, key: Scalar): RowId[] {
+    if (key === null) return [];
+    if (this.hasPagedIndex()) {
+      const pageFile = new PageFile(this.filePath);
+      const meta = this.readMetaPage(pageFile, table, column);
+      const leaf = this.readLeafForKey(pageFile, table, column, meta.rootPageId, key);
+      const entry = leaf.entries.find((candidate) => compareScalars(candidate.key, key) === 0);
+      return entry ? [...entry.rowIds] : [];
+    }
+
+    return this.loadLegacySnapshot(table, column)?.search(key) ?? [];
+  }
+
+  range(table: string, column: string, min: Scalar | null, max: Scalar | null): RowId[] {
+    if (this.hasPagedIndex()) {
+      const pageFile = new PageFile(this.filePath);
+      const meta = this.readMetaPage(pageFile, table, column);
+      const rowIds: RowId[] = [];
+      let pageId: number | null = min === null ? meta.firstLeafPageId : this.findLeafPageId(pageFile, table, column, meta.rootPageId, min);
+      const visited = new Set<number>();
+
+      while (pageId !== null) {
+        if (visited.has(pageId)) throw new Error(`Index store ${this.filePath} contains a leaf cycle at page ${pageId}`);
+        visited.add(pageId);
+
+        const page = readIndexPage(pageFile, pageId);
+        assertIndexPage(page, table, column);
+        if (page.kind !== "leaf") throw new Error(`Index store ${this.filePath} expected leaf page ${pageId}`);
+
+        for (const entry of page.entries) {
+          if (min !== null && compareScalars(entry.key, min) < 0) continue;
+          if (max !== null && compareScalars(entry.key, max) > 0) return rowIds;
+          rowIds.push(...entry.rowIds);
+        }
+
+        pageId = page.nextPageId;
+      }
+
+      return rowIds;
+    }
+
+    return this.loadLegacySnapshot(table, column)?.range(min, max) ?? [];
+  }
+
+  entries(table: string, column: string): IndexStoreEntry[] {
+    if (this.hasPagedIndex()) {
+      const pageFile = new PageFile(this.filePath);
+      const meta = this.readMetaPage(pageFile, table, column);
+      const entries: IndexStoreEntry[] = [];
+      let pageId: number | null = meta.firstLeafPageId;
+      const visited = new Set<number>();
+
+      while (pageId !== null) {
+        if (visited.has(pageId)) throw new Error(`Index store ${this.filePath} contains a leaf cycle at page ${pageId}`);
+        visited.add(pageId);
+
+        const page = readIndexPage(pageFile, pageId);
+        assertIndexPage(page, table, column);
+        if (page.kind !== "leaf") throw new Error(`Index store ${this.filePath} expected leaf page ${pageId}`);
+        entries.push(...page.entries.map((entry) => ({ key: entry.key, rowIds: [...entry.rowIds] })));
+        pageId = page.nextPageId;
+      }
+
+      return entries;
+    }
+
+    return this.loadLegacySnapshot(table, column)?.entries().map((entry) => ({ key: entry.key, rowIds: [...entry.values] })) ?? [];
+  }
+
   private loadPagedTree(table: string, column: string): BPlusTree<RowId> {
     const pageFile = new PageFile(this.filePath);
     const meta = readIndexPage(pageFile, 0);
@@ -209,6 +278,46 @@ export class IndexStore {
   private legacyPath(): string {
     return `${this.filePath}.json`;
   }
+
+  private hasPagedIndex(): boolean {
+    return existsSync(this.filePath) && new PageFile(this.filePath).pageCount() > 0;
+  }
+
+  private readMetaPage(pageFile: PageFile, table: string, column: string): Extract<IndexPage, { kind: "meta" }> {
+    const meta = readIndexPage(pageFile, 0);
+    assertIndexPage(meta, table, column);
+    if (meta.kind !== "meta") throw new Error(`Index store ${this.filePath} page 0 is not a meta page`);
+    return meta;
+  }
+
+  private readLeafForKey(pageFile: PageFile, table: string, column: string, rootPageId: number, key: Scalar): Extract<IndexPage, { kind: "leaf" }> {
+    const leafPageId = this.findLeafPageId(pageFile, table, column, rootPageId, key);
+    const leaf = readIndexPage(pageFile, leafPageId);
+    assertIndexPage(leaf, table, column);
+    if (leaf.kind !== "leaf") throw new Error(`Index store ${this.filePath} expected leaf page ${leafPageId}`);
+    return leaf;
+  }
+
+  private findLeafPageId(pageFile: PageFile, table: string, column: string, rootPageId: number, key: Scalar): number {
+    let pageId = rootPageId;
+    const visited = new Set<number>();
+
+    while (true) {
+      if (visited.has(pageId)) throw new Error(`Index store ${this.filePath} contains a page cycle at page ${pageId}`);
+      visited.add(pageId);
+
+      const page = readIndexPage(pageFile, pageId);
+      assertIndexPage(page, table, column);
+
+      if (page.kind === "leaf") return pageId;
+      if (page.kind !== "internal") throw new Error(`Index store ${this.filePath} cannot descend through ${page.kind} page ${pageId}`);
+
+      const childIndex = findChildIndex(page.keys, key);
+      const childPageId = page.children[childIndex];
+      if (childPageId === undefined) throw new Error(`Index internal page ${pageId} points to a missing child`);
+      pageId = childPageId;
+    }
+  }
 }
 
 function resetPageFile(filePath: string): void {
@@ -216,9 +325,9 @@ function resetPageFile(filePath: string): void {
   rmSync(`${filePath}.checksums.json`, { force: true });
 }
 
-function chunkIndexEntries(entries: IndexEntry[]): IndexEntry[][] {
-  const chunks: IndexEntry[][] = [];
-  let current: IndexEntry[] = [];
+function chunkIndexEntries(entries: IndexStoreEntry[]): IndexStoreEntry[][] {
+  const chunks: IndexStoreEntry[][] = [];
+  let current: IndexStoreEntry[] = [];
 
   for (const entry of entries) {
     if (!fitsIndexPage({ version: 2, kind: "leaf", table: "", column: "", nextPageId: null, entries: [entry] })) {
@@ -413,7 +522,7 @@ function splitInternalPage(pageFile: PageFile, pageId: number, page: Extract<Ind
   return { separator, rightPageId };
 }
 
-function insertIndexEntry(entries: IndexEntry[], key: Scalar, rowId: RowId): IndexEntry[] {
+function insertIndexEntry(entries: IndexStoreEntry[], key: Scalar, rowId: RowId): IndexStoreEntry[] {
   if (!fitsIndexPage({ version: 2, kind: "leaf", table: "", column: "", nextPageId: null, entries: [{ key, rowIds: [rowId] }] })) {
     throw new Error(`Index entry for key ${String(key)} is too large for one index page`);
   }

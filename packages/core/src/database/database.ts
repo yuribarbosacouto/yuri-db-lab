@@ -366,7 +366,7 @@ export class YuriDatabase {
     const primaryKey = this.primaryKey(schema);
     const key = row[primaryKey.name] ?? null;
     if (key === null) throw new Error(`Primary key ${primaryKey.name} cannot be null`);
-    if (this.indexFor(tableName, primaryKey.name).search(key).length > 0) {
+    if (this.indexStoreFor(tableName, primaryKey.name).search(tableName, primaryKey.name, key).length > 0) {
       throw new Error(`Duplicate primary key on ${tableName}.${primaryKey.name}: ${key}`);
     }
     this.assertUniqueIndexesAvailable(tableName, row);
@@ -463,9 +463,9 @@ export class YuriDatabase {
     }
 
     if (plan.strategy === "index-ordered-scan" && plan.indexColumn) {
-      const rowIds = this.indexFor(tableName, plan.indexColumn)
-        .entries()
-        .flatMap((entry) => entry.values);
+      const rowIds = this.indexStoreFor(tableName, plan.indexColumn)
+        .entries(tableName, plan.indexColumn)
+        .flatMap((entry) => entry.rowIds);
       return this.entriesFromRowIds(tableName, rowIds);
     }
 
@@ -474,18 +474,18 @@ export class YuriDatabase {
 
   private rowIdsFromIndexedPredicate(tableName: string, plan: QueryPlan): RowId[] {
     if (!plan.predicate || !plan.indexColumn) return [];
-    const tree = this.indexFor(tableName, plan.indexColumn);
+    const store = this.indexStoreFor(tableName, plan.indexColumn);
     const value = plan.predicate.value;
 
     switch (plan.predicate.op) {
       case "=":
-        return tree.search(value);
+        return store.search(tableName, plan.indexColumn, value);
       case ">":
       case ">=":
-        return tree.range(value, null);
+        return store.range(tableName, plan.indexColumn, value, null);
       case "<":
       case "<=":
-        return tree.range(null, value);
+        return store.range(tableName, plan.indexColumn, null, value);
       case "!=":
         return [];
     }
@@ -537,7 +537,7 @@ export class YuriDatabase {
     const nextKey = after[primaryKey.name] ?? null;
     if (nextKey === null) throw new Error(`Primary key ${primaryKey.name} cannot be null`);
     if (previousKey === nextKey) return;
-    if (this.indexFor(tableName, primaryKey.name).search(nextKey).length > 0) {
+    if (this.indexStoreFor(tableName, primaryKey.name).search(tableName, primaryKey.name, nextKey).length > 0) {
       throw new Error(`Duplicate primary key on ${tableName}.${primaryKey.name}: ${nextKey}`);
     }
   }
@@ -546,7 +546,7 @@ export class YuriDatabase {
     for (const index of this.catalog.indexesForTable(tableName)) {
       if (!index.unique) continue;
       const key = row[index.column] ?? null;
-      if (key !== null && this.indexFor(tableName, index.column).search(key).length > 0) {
+      if (key !== null && this.indexStoreFor(tableName, index.column).search(tableName, index.column, key).length > 0) {
         throw new Error(`Duplicate unique index key on ${index.name}: ${key}`);
       }
     }
@@ -575,7 +575,7 @@ export class YuriDatabase {
     const primaryKey = this.primaryKey(schema);
     const key = normalized[primaryKey.name] ?? null;
     if (key === null) throw new Error(`Primary key ${primaryKey.name} cannot be null`);
-    if (this.indexFor(tableName, primaryKey.name).search(key).length > 0) return false;
+    if (this.indexStoreFor(tableName, primaryKey.name).search(tableName, primaryKey.name, key).length > 0) return false;
 
     this.assertUniqueIndexesAvailable(tableName, normalized);
     const rowId = this.heapFor(tableName).insert(normalized);
@@ -589,7 +589,13 @@ export class YuriDatabase {
     const key = row[primaryKey.name] ?? null;
     if (key === null) return false;
 
-    const rowIds = this.indexFor(tableName, primaryKey.name).search(key);
+    let rowIds = this.indexStoreFor(tableName, primaryKey.name).search(tableName, primaryKey.name, key);
+    if (rowIds.length === 0) {
+      rowIds = this.heapFor(tableName)
+        .scan()
+        .filter((entry) => compareScalars(entry.row[primaryKey.name] ?? null, key) === 0)
+        .map((entry) => entry.rowId);
+    }
     let deleted = false;
     for (const rowId of rowIds) {
       deleted = this.heapFor(tableName).delete(rowId) || deleted;
@@ -649,14 +655,14 @@ export class YuriDatabase {
     const primaryKey = this.primaryKey(schema);
     const primaryValue = row[primaryKey.name] ?? null;
     if (primaryValue !== null) {
-      this.indexFor(tableName, primaryKey.name).insert(primaryValue, rowId);
+      this.indexes.get(indexKey(tableName, primaryKey.name))?.insert(primaryValue, rowId);
       this.indexStoreFor(tableName, primaryKey.name).insert(tableName, primaryKey.name, primaryValue, rowId);
     }
 
     for (const index of this.catalog.indexesForTable(tableName)) {
       const value = row[index.column] ?? null;
       if (value !== null) {
-        this.indexFor(tableName, index.column).insert(value, rowId);
+        this.indexes.get(indexKey(tableName, index.column))?.insert(value, rowId);
         this.indexStoreFor(tableName, index.column).insert(tableName, index.column, value, rowId);
       }
     }
@@ -671,9 +677,8 @@ export class YuriDatabase {
   }
 
   private loadOrRebuildIndex(tableName: string, column: string, schemaIndex?: IndexSchema): void {
-    const loaded = this.indexStoreFor(tableName, column).load(tableName, column);
-    if (loaded) {
-      this.indexes.set(indexKey(tableName, column), loaded);
+    const info = this.indexStoreFor(tableName, column).inspect(tableName, column);
+    if (info.format !== "empty") {
       return;
     }
     this.rebuildIndex(tableName, column, schemaIndex);

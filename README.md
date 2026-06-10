@@ -20,10 +20,11 @@ This project is a technical lab, not a production database. The implemented feat
 - Page-level checksum manifests for persisted heap pages.
 - JSONL write-ahead log for table and row mutations.
 - Commit markers with logical record counts for transaction batch validation.
-- In-memory B+Tree primary-key index rebuilt from heap files at startup.
+- B+Tree index builder for primary-key and secondary index files.
 - Secondary indexes with `CREATE INDEX` and `CREATE UNIQUE INDEX`.
 - Page-backed B+Tree index snapshots with meta, leaf, and internal pages under `indexes/*.idx`.
 - Mutable page-backed index inserts with leaf/internal splits and root replacement.
+- Direct page-backed index reads for point lookups, range lookups, and index-ordered scans.
 - Query planner that explains primary-key lookup, secondary-index lookup, index-ordered scan, or heap scan.
 - `ORDER BY` and `LIMIT` for `SELECT`.
 - Persisted index snapshots under the database directory.
@@ -38,7 +39,7 @@ This project is a technical lab, not a production database. The implemented feat
 
 ## Partial / Experimental
 
-- B+Tree index inserts mutate page-backed files, but delete/rebalance still rebuilds indexes.
+- B+Tree index inserts and indexed reads use page-backed files directly, but delete/rebalance still rebuild affected indexes.
 - Checksums detect corrupted heap pages, but the engine does not yet repair damaged pages.
 - Startup recovery replays the logical WAL, but this lab does not yet model fsync policy or atomic directory swaps.
 - Transactions queue writes and apply them at commit; there is no MVCC or isolation model yet.
@@ -47,7 +48,7 @@ This project is a technical lab, not a production database. The implemented feat
 ## Next Steps
 
 - Fsync strategy and stronger torn-write handling.
-- B+Tree delete/rebalance and direct on-disk index search.
+- B+Tree delete/rebalance and free-page reuse.
 - Cost estimates based on row count, selectivity, and index cardinality.
 - Joins, aggregation, and a stricter SQL grammar.
 - Property-based tests for parser, page layout, and WAL replay invariants.
@@ -157,6 +158,7 @@ Key architecture decisions:
 - [ADR 005: Mutable page-backed index inserts](docs/ADR-005-mutable-index-inserts.md)
 - [ADR 006: Local storage workbench](docs/ADR-006-local-storage-workbench.md)
 - [ADR 007: Guided system demo](docs/ADR-007-guided-system-demo.md)
+- [ADR 008: Direct index page reads](docs/ADR-008-direct-index-page-reads.md)
 
 ## SQL dialect
 
@@ -186,7 +188,7 @@ See [docs/SQL_DIALECT.md](docs/SQL_DIALECT.md) for details.
 
 ## Roadmap
 
-The next milestones are direct on-disk index search, B+Tree delete/rebalance, fsync strategy, property-based tests, and benchmark history. See [docs/ROADMAP.md](docs/ROADMAP.md).
+The next milestones are B+Tree delete/rebalance, fsync strategy, property-based tests, benchmark history, and richer Workbench traces. See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## References that shaped the scope
 
