@@ -32,6 +32,7 @@ This project is a technical lab, not a production database. The implemented feat
 - Transaction queue with commit and rollback for write statements.
 - CLI with one-shot SQL execution and interactive shell.
 - Benchmark runner for inserts, primary-key point reads, secondary-index reads, and heap scans.
+- Local Workbench UI for running SQL and inspecting heap pages, WAL records, storage files, and B+Tree index pages.
 - Vitest coverage for parser, B+Tree behavior, persistence, transactions, and mutation paths.
 - GitHub Actions CI, CodeQL, Dependabot, and GitHub Pages documentation.
 
@@ -75,6 +76,14 @@ Run quality gates:
 npm run quality
 ```
 
+Open the local storage workbench:
+
+```bash
+npm run workbench
+```
+
+Then visit `http://127.0.0.1:4177`, seed the demo database, run SQL, and inspect the generated files, WAL timeline, heap pages, query plans, and B+Tree pages.
+
 Run a benchmark:
 
 ```bash
@@ -108,6 +117,7 @@ selected 1 rows via secondary-index (1.773 ms)
 
 ```mermaid
 flowchart LR
+  Workbench["Workbench UI"] --> DB
   CLI["CLI / shell"] --> DB["YuriDatabase executor"]
   DB --> Parser["SQL parser"]
   DB --> Catalog["catalog.json"]
@@ -134,6 +144,7 @@ packages/core/src
   wal/         write-ahead log
 apps/cli       command-line SQL runner and shell
 apps/bench     reproducible local benchmark
+apps/workbench browser workbench for SQL and storage inspection
 docs/          architecture, SQL dialect, storage internals, roadmap
 ```
 
@@ -144,6 +155,7 @@ Key architecture decisions:
 - [ADR 003: Page checksums and commit marker validation](docs/ADR-003-checksums-and-commit-markers.md)
 - [ADR 004: Page-backed B+Tree index snapshots](docs/ADR-004-page-backed-index-snapshots.md)
 - [ADR 005: Mutable page-backed index inserts](docs/ADR-005-mutable-index-inserts.md)
+- [ADR 006: Local storage workbench](docs/ADR-006-local-storage-workbench.md)
 
 ## SQL dialect
 
@@ -173,7 +185,7 @@ See [docs/SQL_DIALECT.md](docs/SQL_DIALECT.md) for details.
 
 ## Roadmap
 
-The next milestones are direct on-disk index search, B+Tree delete/rebalance, fsync strategy, property-based tests, and benchmark history. See [docs/ROADMAP.md](docs/ROADMAP.md).
+The next milestones are direct on-disk index search, B+Tree delete/rebalance, fsync strategy, property-based tests, demo walkthroughs, and benchmark history. See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## References that shaped the scope
 

@@ -16,6 +16,7 @@ This roadmap is based on the portfolio audit priorities: automation first, then 
 - [x] Persisted index snapshots
 - [x] CLI and shell
 - [x] Benchmarks
+- [x] Local Workbench UI
 - [x] CI, CodeQL, Dependabot, Pages
 
 ## Phase 2: durability
@@ -50,6 +51,7 @@ This roadmap is based on the portfolio audit priorities: automation first, then 
 ## Phase 5: open-source polish
 
 - [x] Releases with changelog
-- [ ] Architecture decision records for major changes
+- [x] Architecture decision records for major changes
 - [ ] More issue labels and contribution guide examples
-- [ ] Demo dataset and walkthrough
+- [x] Demo dataset
+- [ ] Guided demo walkthrough

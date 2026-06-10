@@ -7,7 +7,9 @@ Yuri DB Lab is organized as a storage-engine vertical slice. The goal is to keep
 ```mermaid
 flowchart TD
   User["User command"] --> CLI["apps/cli"]
+  User --> Workbench["apps/workbench"]
   CLI --> Database["YuriDatabase"]
+  Workbench --> Database
   Database --> Parser["SQL parser"]
   Database --> Catalog["Catalog"]
   Database --> Wal["Write-ahead log"]
@@ -23,7 +25,7 @@ flowchart TD
 
 ## Execution path
 
-1. The CLI passes SQL text to `YuriDatabase.execute`.
+1. The CLI or Workbench passes SQL text to `YuriDatabase.execute`.
 2. `parseSql` converts text into a typed statement.
 3. The database validates table and column metadata through the catalog.
 4. Mutating statements append an intent to the WAL.
@@ -32,6 +34,7 @@ flowchart TD
 7. B+Tree indexes resolve row ids when a query can use an index.
 8. On startup, committed WAL records are replayed and incomplete transaction batches are undone.
 9. Results are ordered, limited, and projected into `QueryResult`.
+10. The Workbench renders query results, planner decisions, heap pages, WAL records, and persisted B+Tree pages for local inspection.
 
 ## Persistence model
 
@@ -45,6 +48,8 @@ tables/*.heap.checksums.json page checksum manifests
 indexes/*.idx      page-backed B+Tree index snapshots
 indexes/*.idx.checksums.json index page checksum manifests
 ```
+
+The Workbench runs against its own `.workbench-db` directory by default so demo exploration does not touch a user's CLI database unless a custom `--dir` is passed.
 
 The heap file is durable and each written page has a checksum entry. Indexes are persisted as page-backed B+Tree files with a meta page, leaf pages, and internal pages. Inserts mutate those index pages with leaf/internal splits and root replacement. Updates and deletes still rebuild affected indexes. Startup recovery replays committed logical WAL records, validates transaction commit markers when present, and undoes incomplete transaction batches. The explicit CLI recovery command can still rebuild a fresh database directory from logged operations.
 

@@ -2,6 +2,20 @@
 
 All notable changes to Yuri DB Lab are documented here.
 
+## [0.7.0] - 2026-06-09
+
+### Added
+
+- Local Workbench web UI for running SQL against Yuri DB Lab.
+- Demo database seeding with primary and secondary indexes.
+- Storage explorer showing generated files, heap pages, WAL records, query plans, and page-backed B+Tree index pages.
+- `npm run workbench` script for building and opening the local inspection server.
+- ADR 006 documenting why the project now has a local inspection UI instead of a mock product shell.
+
+### Changed
+
+- README, architecture docs, roadmap, and GitHub Pages site now describe the Workbench path for seeing the database in action.
+
 ## [0.6.0] - 2026-06-09
 
 ### Added

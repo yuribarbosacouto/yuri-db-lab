@@ -115,10 +115,12 @@
         <p>
           A from-scratch database systems lab with SQL parsing, slotted pages, heap storage, WAL,
           primary and secondary indexes, mutable paged index inserts, query plans, automatic WAL
-          recovery, page checksums, CLI workflows, benchmarks, tests, and open-source project hygiene.
+          recovery, page checksums, a local storage workbench, CLI workflows, benchmarks, tests, and
+          open-source project hygiene.
         </p>
         <div class="commands" aria-label="Quickstart commands">
           <code>npm install && npm run build</code>
+          <code>npm run workbench</code>
           <code>node apps/cli/dist/index.js shell --dir .ydb</code>
           <code>npm run bench -- --rows 1000</code>
         </div>
@@ -147,6 +149,7 @@
             <li>GitHub Actions CI</li>
             <li>CodeQL and Dependabot</li>
             <li>Query plan visibility</li>
+            <li>Local Workbench UI</li>
           </ul>
         </section>
         <section>

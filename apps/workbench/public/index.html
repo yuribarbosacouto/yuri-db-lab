@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Yuri DB Lab Workbench</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Yuri DB Lab</p>
+          <h1>Storage Workbench</h1>
+        </div>
+        <div class="status-strip">
+          <span id="db-dir">loading</span>
+          <span id="db-status">ready</span>
+        </div>
+      </header>
+
+      <section class="editor-band" aria-label="SQL workbench">
+        <div class="editor-tools">
+          <button id="seed-btn" type="button">Seed Demo</button>
+          <button id="run-btn" type="button">Run SQL</button>
+          <button id="reset-btn" type="button" class="danger">Reset DB</button>
+        </div>
+        <textarea id="sql-input" spellcheck="false"></textarea>
+      </section>
+
+      <section class="workspace-grid" aria-label="Database internals">
+        <section class="panel results-panel">
+          <div class="panel-heading">
+            <p class="eyebrow">Query</p>
+            <h2>Results</h2>
+          </div>
+          <div id="results" class="results"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-heading">
+            <p class="eyebrow">Planner</p>
+            <h2>Query Plan</h2>
+          </div>
+          <div id="plans" class="plan-list"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-heading">
+            <p class="eyebrow">Files</p>
+            <h2>Storage Explorer</h2>
+          </div>
+          <div id="files" class="file-list"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-heading">
+            <p class="eyebrow">WAL</p>
+            <h2>Log Timeline</h2>
+          </div>
+          <div id="wal" class="timeline"></div>
+        </section>
+
+        <section class="panel wide">
+          <div class="panel-heading">
+            <p class="eyebrow">Indexes</p>
+            <h2>B+Tree Pages</h2>
+          </div>
+          <div id="indexes" class="index-pages"></div>
+        </section>
+
+        <section class="panel wide">
+          <div class="panel-heading">
+            <p class="eyebrow">Heap</p>
+            <h2>Table Pages</h2>
+          </div>
+          <div id="heap" class="heap-pages"></div>
+        </section>
+      </section>
+    </main>
+    <script type="module" src="/client.js"></script>
+  </body>
+</html>

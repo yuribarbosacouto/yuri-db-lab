@@ -1,6 +1,6 @@
 {
   "name": "yuri-db-lab",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "private": true,
   "description": "A from-scratch database systems lab with SQL parsing, slotted pages, WAL, B+Tree indexing, CLI, and benchmarks.",
   "type": "module",
@@ -9,11 +9,12 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "npm run build -w @ydb/core && npm run build -w @ydb/cli && npm run build -w @ydb/bench",
-    "typecheck": "npm run typecheck -w @ydb/core && npm run typecheck -w @ydb/cli && npm run typecheck -w @ydb/bench",
+    "build": "npm run build -w @ydb/core && npm run build -w @ydb/cli && npm run build -w @ydb/bench && npm run build -w @ydb/workbench",
+    "typecheck": "npm run typecheck -w @ydb/core && npm run typecheck -w @ydb/cli && npm run typecheck -w @ydb/bench && npm run typecheck -w @ydb/workbench",
     "lint": "eslint .",
     "test": "npm run test -w @ydb/core",
     "bench": "npm run build -w @ydb/core && npm run build -w @ydb/bench && node apps/bench/dist/index.js",
+    "workbench": "npm run build -w @ydb/core && npm run build -w @ydb/workbench && npm run start -w @ydb/workbench",
     "audit": "npm audit --audit-level=moderate",
     "quality": "npm run lint && npm run typecheck && npm run test && npm run audit && npm run build"
   },
